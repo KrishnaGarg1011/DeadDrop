@@ -2,6 +2,7 @@ import multer from 'multer';
 import path from 'node:path';
 import fs from 'node:fs';
 import crypto from 'node:crypto';
+import jwt from 'jsonwebtoken';
 import { env } from '../config/env.js';
 import { query } from '../config/db.js';
 import { wrap } from '../utils/http.js';
@@ -68,6 +69,7 @@ export const create = wrap(async (req, res) => {
 function pkgServiceMeta(pkg) {
   return {
     token: pkg.token,
+    accessCode: pkg.access_code,
     type: pkg.type,
     fileName: pkg.file_name,
     fileSize: pkg.file_size,
@@ -86,11 +88,51 @@ export const metadata = wrap(async (req, res) => {
   res.json({ pkg: meta });
 });
 
+// Code-based retrieval: resolve a 6-digit code to its drop's public metadata
+// (and the token) so the recipient view can render it.
+export const retrieveByCode = wrap(async (req, res) => {
+  const { code } = req.body || {};
+  const { ip, userAgent } = reqMeta(req);
+  const pkg = await pkgService.getPackageByAccessCode(code, { ip, userAgent });
+  res.json({ pkg });
+});
+
 export const open = wrap(async (req, res) => {
   const { password, recipientEmail } = req.body || {};
   const { ip, userAgent } = reqMeta(req);
   const result = await pkgService.openPackage(req.params.token, { password, ip, userAgent, recipientEmail });
   res.json(result);
+});
+
+// ---------------------------------------------------------------------------
+// Guest session — anonymous senders get the same tracking/logging for the
+// duration of their browser session, without creating an account.
+// ---------------------------------------------------------------------------
+export const guestSession = wrap(async (req, res) => {
+  const { guestId } = req.body || {};
+  if (!guestId || typeof guestId !== 'string' || guestId.length < 8 || guestId.length > 64) {
+    throw badRequest('A valid guest session id is required.');
+  }
+  // A short-lived JWT lets the guest open the realtime channel (role 'guest').
+  const token = jwt.sign({ sub: guestId, role: 'guest', purpose: 'realtime' }, env.jwtSecret, { expiresIn: '1d' });
+  res.json({ token, guestId });
+});
+
+export const guestList = wrap(async (req, res) => {
+  const page = Math.max(parseInt(req.query.page || '1', 10) || 1, 1);
+  const limit = Math.min(Math.max(parseInt(req.query.limit || '10', 10) || 10, 1), 50);
+  const data = await pkgService.listPackagesForGuest(req.params.guestId, { page, limit });
+  res.json(data);
+});
+
+export const guestDetail = wrap(async (req, res) => {
+  const { pkg, recipients } = await pkgService.getGuestDetail(req.params.guestId, req.params.token);
+  res.json({ pkg, recipients });
+});
+
+export const guestLog = wrap(async (req, res) => {
+  const events = await pkgService.getGuestEventLog(req.params.guestId, req.params.token);
+  res.json({ events });
 });
 
 export const mine = wrap(async (req, res) => {

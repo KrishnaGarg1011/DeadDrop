@@ -2,9 +2,10 @@ import bcrypt from 'bcryptjs';
 import jwt from 'jsonwebtoken';
 import fs from 'node:fs';
 import path from 'node:path';
+import crypto from 'node:crypto';
 import { query, withTransaction } from '../config/db.js';
 import { env } from '../config/env.js';
-import { notFound, forbidden, conflict, tooMany } from '../utils/http.js';
+import { notFound, forbidden, conflict, tooMany, badRequest } from '../utils/http.js';
 import { audit } from './audit.js';
 import { newFileKey, encryptBuffer, decryptBuffer } from './crypto.service.js';
 import { notifyPackageEvent } from './realtime.js';
@@ -91,6 +92,21 @@ function toBool(v) {
   return false;
 }
 
+// Short 6-digit access code (zero-padded, e.g. "004217").
+function generateAccessCode() {
+  return String(crypto.randomInt(0, 1000000)).padStart(6, '0');
+}
+
+// Resolve a drop by its 6-digit code (alternative to the share link / QR).
+export async function getPackageByAccessCode(code, { ip, userAgent }) {
+  const clean = String(code || '').replace(/\s+/g, '');
+  if (!/^\d{6}$/.test(clean)) throw badRequest('Access code must be 6 digits.');
+  const { rows } = await query(`SELECT ${publicPackageColumns} FROM packages WHERE access_code = $1`, [clean]);
+  if (!rows[0]) throw notFound('No drop found for that access code.');
+  const pkg = await ensureNotExpired(rows[0]);
+  return toPublicMeta(pkg);
+}
+
 // ---------------------------------------------------------------------------
 // Create
 // ---------------------------------------------------------------------------
@@ -113,6 +129,7 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
     enc_salt,
     file_crypto,
     recipient_emails,
+    guest_id,
   } = input;
 
   // lifecycle: at least one of time-based expiry or a view limit may be set
@@ -177,41 +194,55 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
     }
   }
 
-  const { rows } = await query(
-    `INSERT INTO packages (
-        creator_id, type, secret_text, file_name, file_path, file_mime, file_size,
-        expires_at, max_views, burn_after_reading,
-        is_password_protected, password_hash, max_failed_attempts,
-        e2ee, enc_payload, enc_iv, enc_salt, file_crypto, file_key, file_iv, file_tag
-     )
-     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
-     RETURNING *`,
-    [
-      creatorId,
-      type,
-      type === 'text' ? (e2eeEnabled ? null : secret_text) : null,
-      file ? file.originalname : null,
-      file ? `uploads/${file.filename}` : null,
-      file ? file.mimetype : null,
-      file ? file.size : null,
-      expiresAt,
-      maxViews,
-      burn,
-      isProtected,
-      passwordHash,
-      attemptsLimit,
-      e2eeEnabled,
-      type === 'text' && e2eeEnabled ? enc_payload : null,
-      type === 'text' && e2eeEnabled ? enc_iv : null,
-      type === 'text' && e2eeEnabled ? enc_salt : null,
-      cryptoFlag,
-      fileKeyB64,
-      fileIvB64,
-      fileTagB64,
-    ]
-  );
-
-  const pkg = rows[0];
+  // Generate a unique 6-digit access code; retry on the rare collision.
+  let pkg = null;
+  for (let attempt = 0; attempt < 5 && !pkg; attempt++) {
+    const accessCode = generateAccessCode();
+    try {
+      const { rows } = await query(
+        `INSERT INTO packages (
+            creator_id, type, secret_text, file_name, file_path, file_mime, file_size,
+            expires_at, max_views, burn_after_reading,
+            is_password_protected, password_hash, max_failed_attempts,
+            e2ee, enc_payload, enc_iv, enc_salt, file_crypto, file_key, file_iv, file_tag,
+            access_code, guest_id
+         )
+         VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21,$22,$23)
+         RETURNING *`,
+        [
+          creatorId,
+          type,
+          type === 'text' ? (e2eeEnabled ? null : secret_text) : null,
+          file ? file.originalname : null,
+          file ? `uploads/${file.filename}` : null,
+          file ? file.mimetype : null,
+          file ? file.size : null,
+          expiresAt,
+          maxViews,
+          burn,
+          isProtected,
+          passwordHash,
+          attemptsLimit,
+          e2eeEnabled,
+          type === 'text' && e2eeEnabled ? enc_payload : null,
+          type === 'text' && e2eeEnabled ? enc_iv : null,
+          type === 'text' && e2eeEnabled ? enc_salt : null,
+          cryptoFlag,
+          fileKeyB64,
+          fileIvB64,
+          fileTagB64,
+          accessCode,
+          // Guest drops are tracked per-session; account drops are tracked by owner.
+          creatorId ? null : (guest_id ? String(guest_id).slice(0, 64) : null),
+        ]
+      );
+      pkg = rows[0];
+    } catch (err) {
+      if (err.code === '23505') continue; // unique access_code → try another
+      throw err;
+    }
+  }
+  if (!pkg) throw conflict('Could not allocate a unique access code. Please retry.');
 
   // Shared / team drop: register invited recipients.
   const recipients = Array.isArray(recipient_emails) ? recipient_emails : [];
@@ -269,6 +300,48 @@ export async function listPackagesForCreator(creatorId, { page, limit }) {
   return { list: rows, total: countRows[0].total, page, limit };
 }
 
+// ---------------------------------------------------------------------------
+// Guest session — same "your drops" + delivery log, but keyed by a client
+// generated per-session id instead of an account. No login required.
+// ---------------------------------------------------------------------------
+export async function listPackagesForGuest(guestId, { page, limit }) {
+  const offset = (page - 1) * limit;
+  const { rows: countRows } = await query(
+    `SELECT count(*)::int AS total FROM packages WHERE guest_id = $1`,
+    [guestId]
+  );
+  const { rows } = await query(
+    `SELECT id, token, type, file_name, file_size, expires_at, max_views, view_count,
+            burn_after_reading, is_password_protected, e2ee, status, revoked_at, created_at
+     FROM packages WHERE guest_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [guestId, limit, offset]
+  );
+  return { list: rows, total: countRows[0].total, page, limit };
+}
+
+export async function getGuestDetail(guestId, token) {
+  const { rows } = await query(
+    `SELECT id, token, type, secret_text, e2ee, file_name, file_mime, file_size,
+            expires_at, max_views, view_count, burn_after_reading,
+            is_password_protected, status, revoked_at, created_at
+     FROM packages WHERE token = $1 AND guest_id = $2`,
+    [token, guestId]
+  );
+  if (!rows[0]) throw notFound('Package not found');
+  return { pkg: rows[0], recipients: await listRecipientsForPackage(rows[0].id) };
+}
+
+export async function getGuestEventLog(guestId, token) {
+  const { rows } = await query(
+    `SELECT id FROM packages WHERE token = $1 AND guest_id = $2`,
+    [token, guestId]
+  );
+  if (!rows[0]) throw notFound('Package not found');
+  return getPackageEventLog(rows[0].id);
+}
+
 export async function listRecipientsForPackage(packageId) {
   const { rows } = await query(
     `SELECT id, recipient_email, opened_at, acknowledged_at, created_at
@@ -305,7 +378,7 @@ export async function getPackageEventLog(packageId) {
 // notifies the sender in real time. Visible without exposing content.
 // ---------------------------------------------------------------------------
 export async function acknowledgePackage(token, { recipientEmail, ip, userAgent }) {
-  const { rows } = await query(`SELECT id, token, creator_id, type, status FROM packages WHERE token = $1`, [token]);
+  const { rows } = await query(`SELECT id, token, creator_id, guest_id, type, status FROM packages WHERE token = $1`, [token]);
   if (!rows[0]) throw notFound('Package not found');
   const pkg = rows[0];
 
@@ -332,10 +405,12 @@ export async function acknowledgePackage(token, { recipientEmail, ip, userAgent 
     userAgent,
   });
 
-  if (pkg.creator_id != null) {
+  // Notify the owner in real time — an account sender or a guest session.
+  if (pkg.creator_id != null || pkg.guest_id != null) {
     await notifyPackageEvent({
       packageId: String(pkg.id),
-      creatorId: String(pkg.creator_id),
+      creatorId: pkg.creator_id != null ? String(pkg.creator_id) : null,
+      guestId: pkg.creator_id == null && pkg.guest_id ? String(pkg.guest_id) : null,
       token: pkg.token,
       action: 'acknowledged',
       recipient: recipientEmail || null,
@@ -481,11 +556,12 @@ export async function openPackage(token, { password, ip, userAgent, recipientEma
     );
   }
 
-  // Notify the sender in real time (only if the sender has an account).
-  if (pkg.creator_id != null) {
+  // Notify the owner in real time — an account sender or a guest session.
+  if (pkg.creator_id != null || pkg.guest_id != null) {
     await notifyPackageEvent({
       packageId: String(pkg.id),
-      creatorId: String(pkg.creator_id),
+      creatorId: pkg.creator_id != null ? String(pkg.creator_id) : null,
+      guestId: pkg.creator_id == null && pkg.guest_id ? String(pkg.guest_id) : null,
       token: pkg.token,
       action: result.updated.burn_after_reading ? 'burned'
         : result.updated.status === 'expired' ? 'exhausted' : 'opened',

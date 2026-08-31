@@ -3,10 +3,11 @@ import { getToken, getRole } from '../api/client.js';
 
 const routes = [
   { path: '/', name: 'home', component: () => import('../views/HomeView.vue') },
+  { path: '/retrieve', name: 'retrieve', component: () => import('../views/RetrieveView.vue') },
   { path: '/v/:token', name: 'receive', component: () => import('../views/RecipientView.vue') },
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/register', name: 'register', component: () => import('../views/RegisterView.vue') },
-  { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue'), meta: { requiresUser: true } },
+  { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue') },
 
   {
     path: '/admin',

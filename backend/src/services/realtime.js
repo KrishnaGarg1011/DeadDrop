@@ -37,36 +37,44 @@ export function attachRealtime(server) {
     wss.handleUpgrade(req, socket, head, (ws) => wss.emit('connection', ws, req));
   });
 
-  // Map of userId -> Set<ws>
+  // Rooms keyed by owner identity: "user:<id>" for accounts, "guest:<id>" for
+  // anonymous sessions. Both receive the same live event stream.
   const rooms = new Map();
-  const subscribe = (userId, ws) => {
-    if (!rooms.has(userId)) rooms.set(userId, new Set());
-    rooms.get(userId).add(ws);
+  const ownerKey = (role, id) => `${role}:${id}`;
+  const eventOwnerKey = (event) =>
+    event.creatorId ? ownerKey('user', event.creatorId)
+      : event.guestId ? ownerKey('guest', event.guestId)
+        : null;
+
+  const subscribe = (key, ws) => {
+    if (!rooms.has(key)) rooms.set(key, new Set());
+    rooms.get(key).add(ws);
   };
-  const unsubscribe = (userId, ws) => {
-    const set = rooms.get(userId);
+  const unsubscribe = (key, ws) => {
+    const set = rooms.get(key);
     if (set) {
       set.delete(ws);
-      if (set.size === 0) rooms.delete(userId);
+      if (set.size === 0) rooms.delete(key);
     }
   };
 
   wss.on('connection', (ws, req) => {
     // Authenticate via ?token=<jwt> (WebSocket can't send Authorization headers).
-    let userId = null;
+    let key = null;
     try {
       const url = new URL(req.url, `http://${req.headers.host}`);
       const token = url.searchParams.get('token');
       const payload = jwt.verify(token, env.jwtSecret);
-      if (payload.role !== 'user') throw new Error('not a user');
-      userId = payload.sub;
+      if (payload.role === 'user') key = ownerKey('user', payload.sub);
+      else if (payload.role === 'guest') key = ownerKey('guest', payload.sub);
+      else throw new Error('invalid role');
     } catch {
       ws.send(JSON.stringify({ type: 'error', message: 'unauthorized' }));
       ws.close(4401, 'unauthorized');
       return;
     }
-    subscribe(userId, ws);
-    ws.on('close', () => unsubscribe(userId, ws));
+    subscribe(key, ws);
+    ws.on('close', () => unsubscribe(key, ws));
     ws.on('message', (msg) => {
       try {
         const d = JSON.parse(msg.toString());
@@ -89,8 +97,9 @@ export function attachRealtime(server) {
   listener.on('notification', (msg) => {
     try {
       const event = JSON.parse(msg.payload);
-      const { creatorId } = event;
-      const sockets = rooms.get(String(creatorId));
+      const key = eventOwnerKey(event);
+      if (!key) return;
+      const sockets = rooms.get(key);
       if (!sockets) return;
       const frame = JSON.stringify({ type: 'package_event', event });
       for (const ws of sockets) {

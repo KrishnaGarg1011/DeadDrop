@@ -4,8 +4,11 @@ import { useRouter } from 'vue-router';
 import QRCode from 'qrcode';
 import { api } from '../api/client.js';
 import { encryptText } from '../utils/crypto.js';
+import { getGuestId } from '../utils/guest.js';
+import { useAuthStore } from '../stores/auth.js';
 
 const router = useRouter();
+const auth = useAuthStore();
 
 // content
 const type = ref('text');           // 'text' | 'file'
@@ -86,6 +89,9 @@ async function submit() {
   const fd = new FormData();
   fd.append('type', type.value);
   fd.append('burn_after_reading', burnAfterReading.value ? 'true' : 'false');
+  // Guests are not tied to an account, so stamp the drop with this browser's
+  // session id so the sender can view it under "My drops" for this session.
+  if (!auth.isAuthenticated && getGuestId()) fd.append('guest_id', getGuestId());
 
   if (type.value === 'text') {
     if (e2ee.value) {
@@ -201,6 +207,7 @@ onUnmounted(() => clearTimeout(toastTimer));
         reading, and records every access attempt — so the recipient sees it
         exactly once, and only you can revoke it.
       </p>
+      <RouterLink to="/retrieve" class="retrieve-pill">🔑 Have a 6-digit code? Retrieve a drop →</RouterLink>
 
       <div class="features">
         <div v-for="f in features" :key="f.title" class="feature">
@@ -218,6 +225,10 @@ onUnmounted(() => clearTimeout(toastTimer));
       <div v-if="createdPkg" class="card created">
         <h2>Drop created 🎉</h2>
         <p class="muted">Scan the QR or send this link to your recipient.</p>
+        <div class="code-box">
+          <span class="cb-label muted">Or give them the code</span>
+          <div class="cb-digits mono">{{ createdPkg.accessCode || '·······' }}</div>
+        </div>
         <div class="qr-row">
           <img v-if="qrDataUrl" :src="qrDataUrl" alt="QR code" class="qr" />
           <div class="link-box">
@@ -240,8 +251,12 @@ onUnmounted(() => clearTimeout(toastTimer));
         </div>
         <div class="row actions">
           <button class="ghost" @click="router.push({ name: 'receive', params: { token: createdPkg.token } })">Preview as recipient</button>
+          <button class="ghost" @click="router.push({ name: 'dashboard' })">My drops</button>
           <button class="primary" @click="reset">Create another</button>
         </div>
+        <p v-if="!auth.isAuthenticated" class="muted" style="font-size: 0.82rem; margin: 12px 0 0">
+          👤 Tracking this drop under your <b>guest session</b> — see it in My drops. Log in to keep it permanently.
+        </p>
       </div>
 
       <div v-else class="card compose">
@@ -415,7 +430,9 @@ onUnmounted(() => clearTimeout(toastTimer));
 
 h1 { font-size: 2.7rem; line-height: 1.12; font-weight: 800; letter-spacing: -0.02em; margin: 20px 0 14px; }
 .dot { color: var(--accent); }
-.lede { color: var(--muted); font-size: 1.02rem; line-height: 1.6; max-width: 440px; margin: 0 0 30px; }
+.lede { color: var(--muted); font-size: 1.02rem; line-height: 1.6; max-width: 440px; margin: 0 0 20px; }
+.retrieve-pill { display: inline-flex; align-items: center; gap: 8px; font-size: 0.9rem; font-weight: 600; color: var(--accent); border: 1px solid var(--border-2); background: var(--bg-2); border-radius: 999px; padding: 9px 18px; margin-bottom: 26px; }
+.retrieve-pill:hover { border-color: var(--accent-strong); text-decoration: none; }
 
 .features { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; max-width: 500px; }
 .feature {
@@ -452,7 +469,10 @@ textarea { resize: vertical; }
 .make { width: 100%; margin-top: 20px; padding: 13px; font-size: 1rem; border-radius: 12px; }
 
 .created h2 { margin-top: 0; }
-.qr-row { display: flex; gap: 16px; align-items: center; margin: 16px 0; }
+.code-box { text-align: center; margin: 16px 0 2px; padding: 12px; border: 1px dashed var(--border-2); border-radius: 12px; background: var(--bg-2); }
+.cb-label { font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.1em; font-weight: 600; }
+.cb-digits { font-size: 1.9rem; font-weight: 800; letter-spacing: 0.5em; color: var(--accent-strong); margin-top: 4px; }
+.qr-row { display: flex; gap: 16px; align-items: center; margin: 12px 0; }
 .qr { width: 150px; height: 150px; border-radius: 10px; background: #fff; padding: 6px; flex: none; }
 .link-box { display: flex; gap: 10px; flex: 1; }
 .link-box input { flex: 1; }

@@ -2,9 +2,10 @@ import { API_BASE, getToken } from './client.js';
 
 // Open a WebSocket to the backend's /ws endpoint (JWT via query param).
 // In dev, Vite proxies /ws to the Express server; in production it connects
-// straight to the hosted backend.
-export function openRealtime(onEvent) {
-  const token = getToken();
+// straight to the hosted backend. `token` defaults to the stored account JWT
+// but may also be a guest-session token (role 'guest').
+export function openRealtime(onEvent, tokenArg) {
+  const token = tokenArg || getToken();
   if (!token) return null;
 
   let base = API_BASE;

@@ -17,7 +17,15 @@ router.post('/mine/:token/revoke', requireUser, pkg.revoke);
 // Sender-facing event log (authenticated; never exposes message content).
 router.get('/mine/:token/log', requireUser, pkg.eventLog);
 
+// Guest session — anonymous senders, no login required (session id is credential).
+router.post('/guest/session', pkg.guestSession);
+router.get('/guest/:guestId', pkg.guestList);
+router.get('/guest/:guestId/:token/log', pkg.guestLog);
+router.get('/guest/:guestId/:token', pkg.guestDetail);
+
 // Recipient-facing routes (no auth; the token is the credential).
+// Declared before '/:token' routes so 'retrieve' is not captured as a token.
+router.post('/retrieve', unlockLimiter, pkg.retrieveByCode);
 router.get('/:token/metadata', pkg.metadata);
 router.post('/:token/open', unlockLimiter, pkg.open);
 router.post('/:token/acknowledge', unlockLimiter, pkg.acknowledge);

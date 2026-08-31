@@ -20,9 +20,11 @@ const eventLabel = (a) =>
   : a === 'exhausted' ? 'Hit view limit'
   : a;
 
-// Connect realtime only when authenticated (user tokens only).
-watch(() => auth.isAuthenticated, (authd) => { authd ? notif.connect() : notif.disconnect(); });
-onMounted(() => { if (auth.isAuthenticated) notif.connect(); });
+// Connect realtime for both account holders and guest sessions. When the auth
+// state flips (guest ↔ user), drop the old socket and reconnect with the new
+// identity so events keep flowing.
+watch(() => auth.isAuthenticated, () => { notif.disconnect(); notif.connect(); });
+onMounted(() => notif.connect());
 </script>
 
 <template>
@@ -39,7 +41,8 @@ onMounted(() => { if (auth.isAuthenticated) notif.connect(); });
       </RouterLink>
 
       <nav class="nav">
-        <RouterLink v-if="auth.isUser" to="/dashboard" class="navlink">My drops</RouterLink>
+        <RouterLink to="/retrieve" class="navlink">Retrieve</RouterLink>
+        <RouterLink v-if="!auth.isAdmin" to="/dashboard" class="navlink">My drops</RouterLink>
         <RouterLink v-if="auth.isAdmin" to="/admin" class="adminbtn">Admin</RouterLink>
         <RouterLink v-if="!auth.isAdmin" to="/login?admin=1" class="adminbtn">Admin</RouterLink>
 
@@ -47,8 +50,8 @@ onMounted(() => { if (auth.isAuthenticated) notif.connect(); });
           {{ theme === 'light' ? '🌙' : '☀️' }}
         </button>
 
-        <!-- real-time notification bell -->
-        <div v-if="auth.isAuthenticated" class="bell-wrap">
+        <!-- real-time notification bell (account holders AND guest sessions) -->
+        <div class="bell-wrap">
           <button class="ghost bell" @click="notif.toggle()" title="Notifications">
             🔔
             <span v-if="notif.unread" class="badge-count">{{ notif.unread > 9 ? '9+' : notif.unread }}</span>

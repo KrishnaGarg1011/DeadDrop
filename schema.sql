@@ -36,6 +36,8 @@ CREATE TYPE package_status AS ENUM ('active', 'expired', 'burned', 'revoked', 'l
 CREATE TABLE packages (
     id                    BIGSERIAL PRIMARY KEY,
     token                 TEXT        NOT NULL UNIQUE DEFAULT gen_random_uuid()::text,
+    access_code           VARCHAR(6),          -- short 6-digit code for code-based retrieval
+    guest_id              TEXT,                -- per-session id for anonymous (guest) senders
 
     -- who created it (NULL when anonymous)
     creator_id            BIGINT      REFERENCES users(id) ON DELETE SET NULL,
@@ -78,6 +80,8 @@ CREATE TABLE packages (
 
 -- fast lookup by shareable token and by creator/admin dashboard filters
 CREATE INDEX idx_packages_token    ON packages (token);
+CREATE UNIQUE INDEX idx_packages_access_code ON packages (access_code) WHERE access_code IS NOT NULL;
+CREATE INDEX idx_packages_guest    ON packages (guest_id) WHERE guest_id IS NOT NULL;
 CREATE INDEX idx_packages_status   ON packages (status);
 CREATE INDEX idx_packages_creator  ON packages (creator_id) WHERE creator_id IS NOT NULL;
 CREATE INDEX idx_packages_expiry   ON packages (expires_at);

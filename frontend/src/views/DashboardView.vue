@@ -2,6 +2,17 @@
 import { ref, onMounted, computed } from 'vue';
 import { api } from '../api/client.js';
 import Pagination from '../components/Pagination.vue';
+import { useAuthStore } from '../stores/auth.js';
+import { getGuestId } from '../utils/guest.js';
+
+const auth = useAuthStore();
+const guestId = getGuestId();
+
+// account holder sees their account drops; a guest sees this session's drops.
+const isGuest = computed(() => !auth.isUser);
+const prefix = computed(() =>
+  isGuest.value ? `/api/packages/guest/${guestId}` : '/api/packages/mine'
+);
 
 const list = ref([]);
 const total = ref(0);
@@ -14,10 +25,7 @@ const expanded = ref(null);
 const expandedRecipients = ref([]);
 const expandedLog = ref([]);
 
-function statusPill(s) { return s; }
-
 function deliveryStatus(pkg) {
-  // sent / seen / failed summary without revealing content
   if (pkg.status === 'burned') return { label: 'Seen & burned', cls: 'burned' };
   if (pkg.status === 'revoked') return { label: 'Revoked', cls: 'revoked' };
   if (pkg.status === 'locked') return { label: 'Locked', cls: 'locked' };
@@ -30,7 +38,7 @@ function deliveryStatus(pkg) {
 async function load() {
   error.value = '';
   try {
-    const data = await api.get(`/api/packages/mine?page=${page.value}&limit=${limit.value}`);
+    const data = await api.get(`${prefix.value}?page=${page.value}&limit=${limit.value}`);
     list.value = data.list;
     total.value = data.total;
   } catch (err) {
@@ -42,18 +50,20 @@ async function toggleExpand(pkg) {
   if (expanded.value === pkg.token) { expanded.value = null; return; }
   expanded.value = pkg.token;
   try {
-    const d = await api.get(`/api/packages/mine/${pkg.token}`);
+    const d = await api.get(`${prefix.value}/${pkg.token}`);
     expandedRecipients.value = d.recipients || [];
   } catch { expandedRecipients.value = []; }
   try {
-    const l = await api.get(`/api/packages/mine/${pkg.token}/log`);
+    const l = await api.get(`${prefix.value}/${pkg.token}/log`);
     expandedLog.value = l.events || [];
   } catch { expandedLog.value = []; }
 }
 
 async function revoke(pkg) {
   if (!confirm(`Revoke drop ${pkg.token.slice(0, 8)}…?`)) return;
-  try { await api.post(`/api/packages/mine/${pkg.token}/revoke`); await load(); }
+  // guests revoke via the public token route (the token is the credential)
+  const url = isGuest.value ? `/api/packages/${pkg.token}/revoke` : `${prefix.value}/${pkg.token}/revoke`;
+  try { await api.post(url); await load(); }
   catch (err) { alert(err.message); }
 }
 
@@ -109,6 +119,11 @@ onMounted(load);
   <div>
     <h1>Your drops</h1>
     <p class="muted">Track the status, read receipts and full delivery log of everything you've sent. Opens appear on the 🔔 bell live.</p>
+
+    <div v-if="isGuest" class="alert info guest-note">
+      👤 <b>Guest session</b> — these drops are tied to this browser only. They stay until you clear your data.
+      <RouterLink to="/register">Create an account</RouterLink> to keep them permanently.
+    </div>
 
     <div class="statbar">
       <div class="mini"><div class="v">{{ counters.active }}</div><div class="l">Active</div></div>
@@ -182,6 +197,7 @@ onMounted(load);
 .dcard { background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
 .recip { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 0.88rem; }
 .logrow { display: flex; gap: 10px; align-items: center; margin: 6px 0; font-size: 0.82rem; }
+.guest-note { font-size: 0.9rem; }
 h1 { margin-bottom: 4px; }
 @media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; } }
 </style>
