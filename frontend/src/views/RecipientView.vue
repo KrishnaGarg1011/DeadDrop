@@ -16,6 +16,9 @@ const opened = ref(null);
 const downloadToken = ref(null);
 const downloading = ref(false);
 const meta = ref(null);
+const burning = ref(false);        // triggers self-destruct animation
+const acknowledged = ref(false);
+const shareUrl = `${location.origin}/v/${token}`;
 
 async function load() {
   phase.value = 'loading';
@@ -52,6 +55,7 @@ async function open() {
       }
     }
     opened.value = data;
+    if (data.burnAfterReading) burning.value = true;
     if (data.downloadToken) downloadToken.value = data.downloadToken;
     phase.value = 'ready';
   } catch (err) {
@@ -80,6 +84,36 @@ async function download() {
   } finally {
     downloading.value = false;
   }
+}
+
+async function acknowledge() {
+  if (acknowledged.value) return;
+  busy.value = true;
+  try {
+    const data = await api.post(`/api/packages/${token}/acknowledge`, {
+      recipientEmail: sharedEmail.value || undefined,
+    });
+    if (data.acknowledged) acknowledged.value = true;
+  } catch (err) {
+    errorMessage.value = err.message;
+  } finally {
+    busy.value = false;
+  }
+}
+
+function openShare(network) {
+  const url = encodeURIComponent(shareUrl);
+  const text = encodeURIComponent('A secret just for you on DeadDrop 🔒');
+  const links = {
+    x: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
+    whatsapp: `https://wa.me/?text=${text}%20${url}`,
+  };
+  window.open(links[network], '_blank', 'noopener');
+}
+
+function hasSecret() {
+  return opened.value?.type === 'text' && !opened.value?.encrypted;
 }
 
 onMounted(load);
@@ -124,6 +158,12 @@ onMounted(load);
     </div>
 
     <div v-else-if="phase === 'ready'" class="card center ready">
+      <!-- self-destruct animation overlay -->
+      <div v-if="burning" class="burn-overlay" :class="{ gone: !burning }">
+        <div class="flame">🔥</div>
+        <div class="burn-text">SELF-DES<span class="shred">T</span>RUCTED</div>
+      </div>
+
       <template v-if="opened.type === 'text'">
         <div class="big-icon">{{ opened.encrypted ? '🔐' : '✉️' }}</div>
         <h2>{{ opened.encrypted ? 'Decrypted message' : 'Secret message revealed' }}</h2>
@@ -139,7 +179,24 @@ onMounted(load);
         </button>
         <p v-if="opened.burnAfterReading" class="warn">🔥 This file will be deleted after download.</p>
       </template>
+
       <div class="spacer"></div>
+
+      <!-- acknowledge -->
+      <div v-if="!acknowledged" class="ack-row">
+        <button class="primary" :disabled="busy" @click="acknowledge">✅ I've seen it</button>
+        <p v-if="busy" class="muted" style="font-size:.8rem">Sending read receipt…</p>
+      </div>
+      <p v-else class="ack-done">✅ Read receipt sent to the sender</p>
+
+      <!-- share to social -->
+      <div class="share-row">
+        <span class="muted">Share:</span>
+        <button class="ghost share" @click="openShare('x')" title="X">𝕏</button>
+        <button class="ghost share" @click="openShare('linkedin')" title="LinkedIn">in</button>
+        <button class="ghost share" @click="openShare('whatsapp')" title="WhatsApp">🟢</button>
+      </div>
+      <p class="muted mono" style="font-size:.72rem; word-break:break-all">{{ shareUrl }}</p>
     </div>
   </div>
 </template>
@@ -160,4 +217,29 @@ onMounted(load);
 .warn { color: var(--amber); font-size: 0.85rem; margin-top: 12px; }
 .spinner { width: 34px; height: 34px; margin: 0 auto 12px; border: 3px solid var(--border); border-top-color: var(--accent-strong); border-radius: 50%; animation: spin 0.8s linear infinite; }
 @keyframes spin { to { transform: rotate(360deg); } }
+
+/* self-destruct / burn animation */
+.burn-overlay {
+  position: fixed; inset: 0; z-index: 90; display: flex; flex-direction: column;
+  align-items: center; justify-content: center; gap: 20px;
+  background:
+    radial-gradient(circle at center, rgba(255,120,40,0.5), rgba(255,40,0,0.15) 40%, transparent 70%),
+    rgba(0,0,0,0.85);
+  animation: burnflash 2.4s ease forwards;
+  pointer-events: none;
+}
+.burn-overlay.gone { display: none; }
+.flame { font-size: 6rem; animation: flicker 0.5s ease-in-out infinite alternate; }
+.burn-text {
+  font-weight: 800; font-size: 1.6rem; letter-spacing: 0.35em; color: #ffd9a0;
+  text-shadow: 0 0 20px rgba(255,120,40,0.9); font-family: 'SFMono-Regular', ui-monospace, monospace;
+}
+.shred { color: #ff6b3b; }
+@keyframes flicker { from { transform: scale(1) rotate(-4deg); } to { transform: scale(1.12) rotate(4deg); } }
+@keyframes burnflash { 0% { opacity: 0; } 20% { opacity: 1; } 75% { opacity: 1; } 100% { opacity: 0; } }
+
+.ack-row { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
+.ack-done { color: var(--accent); font-weight: 600; font-size: 0.9rem; margin-top: 14px; }
+.share-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px; }
+.share { padding: 6px 12px; font-weight: 700; }
 </style>

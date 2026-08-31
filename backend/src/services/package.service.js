@@ -271,11 +271,79 @@ export async function listPackagesForCreator(creatorId, { page, limit }) {
 
 export async function listRecipientsForPackage(packageId) {
   const { rows } = await query(
-    `SELECT id, recipient_email, opened_at, created_at
+    `SELECT id, recipient_email, opened_at, acknowledged_at, created_at
      FROM package_recipients WHERE package_id = $1 ORDER BY created_at ASC`,
     [packageId]
   );
   return rows;
+}
+
+// ---------------------------------------------------------------------------
+// Per-drop lifecycle / delivery log (senders see WHEN, WHO, and WHAT, but never
+// the secret message content). Combines audit + access logs.
+// ---------------------------------------------------------------------------
+export async function getPackageEventLog(packageId) {
+  const { rows: auditRows } = await query(
+    `SELECT 'state' AS kind, action, details, ip_address, user_agent, created_at
+       FROM audit_logs
+      WHERE entity_type = 'package' AND entity_id = $1`,
+    [packageId]
+  );
+  const { rows: accessRows } = await query(
+    `SELECT 'access' AS kind, success, reason, ip_address, user_agent, created_at
+       FROM access_logs WHERE package_id = $1`,
+    [packageId]
+  );
+  const events = [...auditRows, ...accessRows]
+    .map((e) => ({ ...e, created_at: new Date(e.created_at) }))
+    .sort((a, b) => b.created_at - a.created_at);
+  return events;
+}
+
+// ---------------------------------------------------------------------------
+// Recipient "acknowledge" — a manual "I've seen it" tap. Records read time and
+// notifies the sender in real time. Visible without exposing content.
+// ---------------------------------------------------------------------------
+export async function acknowledgePackage(token, { recipientEmail, ip, userAgent }) {
+  const { rows } = await query(`SELECT id, token, creator_id, type, status FROM packages WHERE token = $1`, [token]);
+  if (!rows[0]) throw notFound('Package not found');
+  const pkg = rows[0];
+
+  // If a recipient email is supplied, mark that recipient as read/acknowledged.
+  let affected = 0;
+  if (recipientEmail && EMAIL_RE.test(recipientEmail)) {
+    const up = await query(
+      `UPDATE package_recipients
+          SET opened_at = coalesce(opened_at, now()), acknowledged_at = now()
+        WHERE package_id = $1 AND recipient_email = $2`,
+      [pkg.id, recipientEmail]
+    );
+    affected = up.rowCount;
+  }
+
+  // Always log the acknowledge event even without a named recipient.
+  await audit({
+    actorType: pkg.creator_id ? 'sender' : 'anonymous',
+    action: 'package.acknowledged',
+    entityType: 'package',
+    entityId: pkg.id,
+    details: { recipient: recipientEmail || null, status: pkg.status },
+    ip,
+    userAgent,
+  });
+
+  if (pkg.creator_id != null) {
+    await notifyPackageEvent({
+      packageId: String(pkg.id),
+      creatorId: String(pkg.creator_id),
+      token: pkg.token,
+      action: 'acknowledged',
+      recipient: recipientEmail || null,
+      at: new Date().toISOString(),
+    });
+  }
+
+  return { acknowledged: true, affected };
 }
 
 // ---------------------------------------------------------------------------

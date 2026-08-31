@@ -176,6 +176,17 @@ const features = [
   { icon: '📋', title: 'Live tracking & audit', desc: 'Real-time open notifications plus a full audit trail.' },
 ];
 
+function openShare(network) {
+  const url = encodeURIComponent(shareUrl.value);
+  const text = encodeURIComponent('A secret just for you on DeadDrop 🔒');
+  const links = {
+    x: `https://twitter.com/intent/tweet?text=${text}&url=${url}`,
+    linkedin: `https://www.linkedin.com/sharing/share-offsite/?url=${url}`,
+    whatsapp: `https://wa.me/?text=${text}%20${url}`,
+  };
+  window.open(links[network], '_blank', 'noopener');
+}
+
 onUnmounted(() => clearTimeout(toastTimer));
 </script>
 
@@ -220,6 +231,12 @@ onUnmounted(() => clearTimeout(toastTimer));
           <span class="badge" v-if="createdPkg.isPasswordProtected">password protected</span>
           <span class="badge" v-if="createdPkg.maxViews">max {{ createdPkg.maxViews }} views</span>
           <span class="badge" v-if="createdPkg.expiresAt">expires {{ new Date(createdPkg.expiresAt).toLocaleDateString() }}</span>
+        </div>
+        <div class="share-line">
+          <span class="muted">Share to:</span>
+          <button class="ghost share" @click="openShare('x')" title="Share on X">𝕏</button>
+          <button class="ghost share" @click="openShare('linkedin')" title="Share on LinkedIn">in</button>
+          <button class="ghost share" @click="openShare('whatsapp')" title="Share on WhatsApp">✆</button>
         </div>
         <div class="row actions">
           <button class="ghost" @click="router.push({ name: 'receive', params: { token: createdPkg.token } })">Preview as recipient</button>
@@ -441,7 +458,9 @@ textarea { resize: vertical; }
 .link-box input { flex: 1; }
 @media (max-width: 480px) { .qr-row { flex-direction: column; align-items: stretch; } .qr { width: 100%; height: auto; } }
 .rules { display: flex; gap: 8px; flex-wrap: wrap; }
-.actions { margin-top: 20px; }
+.share-line { display: flex; align-items: center; gap: 10px; margin-top: 18px; padding-top: 14px; border-top: 1px solid var(--border); }
+.share { padding: 6px 12px; font-weight: 700; }
+.actions { margin-top: 14px; }
 
 @media (max-width: 900px) {
   .home { grid-template-columns: 1fr; gap: 30px; }

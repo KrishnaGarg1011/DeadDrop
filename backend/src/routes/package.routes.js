@@ -14,9 +14,13 @@ router.get('/mine', requireUser, pkg.mine);
 router.get('/mine/:token', requireUser, pkg.mineDetail);
 router.post('/mine/:token/revoke', requireUser, pkg.revoke);
 
+// Sender-facing event log (authenticated; never exposes message content).
+router.get('/mine/:token/log', requireUser, pkg.eventLog);
+
 // Recipient-facing routes (no auth; the token is the credential).
 router.get('/:token/metadata', pkg.metadata);
 router.post('/:token/open', unlockLimiter, pkg.open);
+router.post('/:token/acknowledge', unlockLimiter, pkg.acknowledge);
 router.get('/:token/download', pkg.download);
 
 // Revoke an active package (creator, or admin via the admin route).

@@ -4,6 +4,7 @@
   --panel: #11171400;
   --panel-solid: #11171400;
   --panel: #11171400;
+  --panel-2: #131b17;
   --card: #10161400;
   --border: #212b27;
   --border-2: #2a3731;
@@ -21,6 +22,39 @@
   font-family: 'Inter', system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif;
   color-scheme: dark;
 }
+
+/* Light theme — applied via [data-theme="light"] on <html> */
+:root[data-theme='light'] {
+  --bg: #f2f6f4;
+  --bg-2: #ffffff;
+  --panel: rgba(255,255,255,0.7);
+  --panel-2: #fbfdfc;
+  --border: #dde5e0;
+  --border-2: #c6d2cb;
+  --text: #10201a;
+  --muted: #5f7168;
+  --accent: #10b981;
+  --accent-strong: #059669;
+  --accent-dim: rgba(5, 150, 105, 0.1);
+  --shadow: 0 16px 40px rgba(30, 50, 40, 0.12);
+  color-scheme: light;
+}
+:root[data-theme='light'] body {
+  background:
+    linear-gradient(rgba(5, 150, 105, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(5, 150, 105, 0.05) 1px, transparent 1px),
+    var(--bg);
+}
+:root[data-theme='light'] .message,
+:root[data-theme='light'] input,
+:root[data-theme='light'] select,
+:root[data-theme='light'] textarea,
+:root[data-theme='light'] .dropzone,
+:root[data-theme='light'] .seg,
+:root[data-theme='light'] .pillbtn {
+  background: #fbfdfc;
+}
+:root[data-theme='light'] pre.message { background: #eef4f0; color: #10201a; }
 
 * { box-sizing: border-box; }
 html, body, #app { margin: 0; height: 100%; }

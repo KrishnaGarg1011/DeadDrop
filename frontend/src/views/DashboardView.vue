@@ -1,7 +1,6 @@
 <script setup>
-import { ref, onMounted, onUnmounted, computed } from 'vue';
+import { ref, onMounted, computed } from 'vue';
 import { api } from '../api/client.js';
-import { openRealtime } from '../api/realtime.js';
 import Pagination from '../components/Pagination.vue';
 
 const list = ref([]);
@@ -9,17 +8,24 @@ const total = ref(0);
 const page = ref(1);
 const limit = ref(8);
 const error = ref('');
-const qrUrl = ref('');
 
-// expanded row (recipient read-status)
+// expanded row: recipient read-status + event log
 const expanded = ref(null);
 const expandedRecipients = ref([]);
+const expandedLog = ref([]);
 
-// live notifications
-const notifications = ref([]);
-let ws = null;
+function statusPill(s) { return s; }
 
-const statusPill = (s) => s;
+function deliveryStatus(pkg) {
+  // sent / seen / failed summary without revealing content
+  if (pkg.status === 'burned') return { label: 'Seen & burned', cls: 'burned' };
+  if (pkg.status === 'revoked') return { label: 'Revoked', cls: 'revoked' };
+  if (pkg.status === 'locked') return { label: 'Locked', cls: 'locked' };
+  if (pkg.status === 'expired' && pkg.max_views && pkg.view_count >= pkg.max_views) return { label: 'Seen (limit hit)', cls: 'expired' };
+  if (pkg.status === 'expired') return { label: 'Expired', cls: 'expired' };
+  if (pkg.view_count > 0) return { label: 'Seen', cls: 'active' };
+  return { label: 'Sent', cls: 'active' };
+}
 
 async function load() {
   error.value = '';
@@ -32,77 +38,77 @@ async function load() {
   }
 }
 
-function onEvent(ev) {
-  notifications.value.unshift(ev);
-  if (notifications.value.length > 5) notifications.value.pop();
-  // refresh to reflect new view counts
-  load();
-}
-
 async function toggleExpand(pkg) {
-  if (expanded.value === pkg.token) {
-    expanded.value = null;
-    return;
-  }
+  if (expanded.value === pkg.token) { expanded.value = null; return; }
   expanded.value = pkg.token;
   try {
-    const data = await api.get(`/api/packages/mine/${pkg.token}`);
-    expandedRecipients.value = data.recipients || [];
-  } catch (err) {
-    expandedRecipients.value = [];
-  }
+    const d = await api.get(`/api/packages/mine/${pkg.token}`);
+    expandedRecipients.value = d.recipients || [];
+  } catch { expandedRecipients.value = []; }
+  try {
+    const l = await api.get(`/api/packages/mine/${pkg.token}/log`);
+    expandedLog.value = l.events || [];
+  } catch { expandedLog.value = []; }
 }
 
 async function revoke(pkg) {
-  if (!confirm(`Revoke drop ${pkg.token.slice(0, 8)}…? Receivers will no longer open it.`)) return;
-  try {
-    await api.post(`/api/packages/mine/${pkg.token}/revoke`);
-    await load();
-  } catch (err) {
-    alert(err.message);
-  }
+  if (!confirm(`Revoke drop ${pkg.token.slice(0, 8)}…?`)) return;
+  try { await api.post(`/api/packages/mine/${pkg.token}/revoke`); await load(); }
+  catch (err) { alert(err.message); }
 }
 
 async function copyLink(pkg) {
   const url = `${location.origin}/v/${pkg.token}`;
-  try {
-    await navigator.clipboard.writeText(url);
-  } catch {
-    const el = document.createElement('textarea');
-    el.value = url; document.body.appendChild(el); el.select();
+  try { await navigator.clipboard.writeText(url); }
+  catch {
+    const el = document.createElement('textarea'); el.value = url; document.body.appendChild(el); el.select();
     try { document.execCommand('copy'); } catch {}
     document.body.removeChild(el);
   }
-  notifications.value.unshift({ type: 'copied', token: pkg.token });
 }
 
 function timeLeft(pkg) {
   if (!pkg.expires_at) return '';
   const diff = new Date(pkg.expires_at) - Date.now();
   if (diff <= 0) return 'expired';
-  const h = Math.floor(diff / 3600000);
-  const m = Math.floor((diff % 3600000) / 60000);
+  const h = Math.floor(diff / 3600000), m = Math.floor((diff % 3600000) / 60000);
   return h > 0 ? `${h}h ${m}m` : `${m}m`;
 }
 
-const counters = computed(() => {
-  const active = list.value.filter((p) => p.status === 'active').length;
-  const burned = list.value.filter((p) => p.status === 'burned').length;
-  const totalViews = list.value.reduce((a, p) => a + (p.view_count || 0), 0);
-  return { active, burned, totalViews };
-});
+const counters = computed(() => ({
+  active: list.value.filter((p) => p.status === 'active').length,
+  burned: list.value.filter((p) => p.status === 'burned').length,
+  totalViews: list.value.reduce((a, p) => a + (p.view_count || 0), 0),
+}));
 
-onMounted(() => {
-  load();
-  ws = openRealtime(onEvent);
-});
-onUnmounted(() => { if (ws) ws.close(); });
+function logLabel(e) {
+  const a = e.action || (e.success ? 'ok' : 'failed');
+  const map = {
+    'package.created': 'Sent', 'package.opened': 'Opened', 'package.burned': 'Burned',
+    'package.locked': 'Locked', 'package.revoked': 'Revoked', 'package.expired': 'Expired',
+    'package.exhausted': 'View limit hit', 'package.acknowledged': 'Acknowledged',
+    'package.access_failed': 'Password failed',
+  };
+  let label = map[a] || a;
+  if (e.kind === 'access' && !e.success) label = 'Failed attempt';
+  return label;
+}
+function logColor(e) {
+  const a = e.action || (e.success ? 'ok' : 'fail');
+  if (a === 'package.burned' || a === 'package.revoked') return 'burned';
+  if (a === 'package.locked') return 'locked';
+  if (a === 'package.expired' || a === 'package.exhausted') return 'expired';
+  if (e.kind === 'access' && !e.success) return 'locked';
+  return 'active';
+}
+
+onMounted(load);
 </script>
 
 <template>
   <div>
     <h1>Your drops</h1>
-    <p class="muted">Track, copy and revoke everything you've sent. Opens appear live.</p>
+    <p class="muted">Track the status, read receipts and full delivery log of everything you've sent. Opens appear on the 🔔 bell live.</p>
 
     <div class="statbar">
       <div class="mini"><div class="v">{{ counters.active }}</div><div class="l">Active</div></div>
@@ -112,25 +118,13 @@ onUnmounted(() => { if (ws) ws.close(); });
 
     <div v-if="error" class="alert error">{{ error }}</div>
 
-    <!-- live notifications -->
-    <transition-group v-if="notifications.length" name="toast" tag="div" class="live">
-      <div v-for="(n, i) in notifications" :key="i" class="live-item">
-        <template v-if="n.type === 'opened'">🔔 <b>Drop opened</b> · {{ n.token.slice(0, 8) }}… (view {{ n.views }})</template>
-        <template v-else-if="n.type === 'burned'">🔥 <b>Burned after reading</b> · {{ n.token.slice(0, 8) }}…</template>
-        <template v-else-if="n.type === 'exhausted'">⏱ <b>Hit view limit</b> · {{ n.token.slice(0, 8) }}…</template>
-        <template v-else-if="n.type === 'copied'">✅ Link copied · {{ n.token.slice(0, 8) }}…</template>
-      </div>
-    </transition-group>
-
     <div class="table-wrap">
       <table>
         <thead>
-          <tr>
-            <th>Token</th><th>Type</th><th>Views</th><th>Expires</th><th>Status</th><th>Created</th><th></th>
-          </tr>
+          <tr><th>Token</th><th>Type</th><th>Views</th><th>Expires</th><th>Status</th><th>Delivered</th><th>Created</th><th></th></tr>
         </thead>
         <tbody>
-          <tr v-if="list.length === 0"><td colspan="7" class="center muted" style="padding: 30px">Nothing here yet. <RouterLink to="/">Create a drop →</RouterLink></td></tr>
+          <tr v-if="list.length === 0"><td colspan="8" class="center muted" style="padding: 30px">Nothing yet. <RouterLink to="/">Create a drop →</RouterLink></td></tr>
           <template v-for="p in list" :key="p.id">
             <tr>
               <td class="mono">{{ p.token.slice(0, 10) }}…</td>
@@ -138,23 +132,36 @@ onUnmounted(() => { if (ws) ws.close(); });
               <td>{{ p.view_count }}{{ p.max_views ? ' / ' + p.max_views : '' }}</td>
               <td class="muted">{{ p.expires_at ? timeLeft(p) : 'never' }}</td>
               <td><span class="pill" :class="p.status">{{ p.status }}</span></td>
+              <td>
+                <span class="pill" :class="deliveryStatus(p).cls">{{ deliveryStatus(p).label }}</span>
+              </td>
               <td class="muted">{{ new Date(p.created_at).toLocaleDateString() }}</td>
               <td style="white-space: nowrap">
                 <button class="ghost" @click="copyLink(p)">Copy</button>
-                <button class="ghost" @click="toggleExpand(p)">{{ expanded === p.token ? 'Hide' : 'Reads' }}</button>
+                <button class="ghost" @click="toggleExpand(p)">{{ expanded === p.token ? 'Hide' : 'Details' }}</button>
                 <button v-if="p.status === 'active'" class="danger" @click="revoke(p)">Revoke</button>
               </td>
             </tr>
             <tr v-if="expanded === p.token" class="expand">
-              <td colspan="7">
-                👥 <b>Recipients</b>
-                <span v-if="expandedRecipients.length === 0" class="muted"> (not a shared drop)</span>
-                <span v-else class="recips">
-                  <span v-for="r in expandedRecipients" :key="r.id" class="recip">
-                    {{ r.recipient_email }}
-                    <span class="pill" :class="r.opened_at ? 'active' : 'expired'">{{ r.opened_at ? 'read' : 'pending' }}</span>
-                  </span>
-                </span>
+              <td colspan="8">
+                <div class="detail-grid">
+                  <div class="dcard">
+                    <b>👥 Recipients</b>
+                    <p v-if="expandedRecipients.length === 0" class="muted">Not a shared drop.</p>
+                    <div v-for="r in expandedRecipients" :key="r.id" class="recip">
+                      {{ r.recipient_email }}
+                      <span class="pill" :class="r.opened_at ? 'active' : 'expired'">{{ r.opened_at ? (r.acknowledged_at ? 'seen ✓' : 'seen') : 'pending' }}</span>
+                    </div>
+                  </div>
+                  <div class="dcard">
+                    <b>📜 Delivery log</b>
+                    <p v-if="expandedLog.length === 0" class="muted">No events yet.</p>
+                    <div v-for="(e, i) in expandedLog" :key="i" class="logrow">
+                      <span class="pill" :class="logColor(e)">{{ logLabel(e) }}</span>
+                      <span class="muted">{{ new Date(e.created_at).toLocaleString() }}</span>
+                    </div>
+                  </div>
+                </div>
               </td>
             </tr>
           </template>
@@ -169,14 +176,12 @@ onUnmounted(() => { if (ws) ws.close(); });
 <style scoped>
 .statbar { display: flex; gap: 14px; margin-bottom: 20px; }
 .mini { background: var(--panel); border: 1px solid var(--border); border-radius: 12px; padding: 14px 18px; }
-.mini .v { font-size: 1.4rem; font-weight: 800; }
-.mini .l { color: var(--muted); font-size: 0.8rem; }
-.live { display: flex; flex-direction: column; gap: 8px; margin-bottom: 16px; }
-.live-item { background: var(--accent-dim); border: 1px solid rgba(52,211,153,.3); border-radius: 10px; padding: 10px 14px; font-size: 0.88rem; }
-.recips { display: inline-flex; flex-direction: column; gap: 6px; margin-left: 8px; }
-.recip { display: inline-flex; gap: 8px; align-items: center; }
+.mini .v { font-size: 1.4rem; font-weight: 800; } .mini .l { color: var(--muted); font-size: 0.8rem; }
 .expand td { background: var(--panel-2); }
-.toast-enter-active { animation: slidein .25s ease; }
-@keyframes slidein { from { opacity: 0; transform: translateY(-6px);} to { opacity:1; transform:none;} }
+.detail-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+.dcard { background: var(--bg-2); border: 1px solid var(--border); border-radius: 10px; padding: 12px 14px; }
+.recip { display: flex; gap: 8px; align-items: center; margin: 6px 0; font-size: 0.88rem; }
+.logrow { display: flex; gap: 10px; align-items: center; margin: 6px 0; font-size: 0.82rem; }
 h1 { margin-bottom: 4px; }
+@media (max-width: 640px) { .detail-grid { grid-template-columns: 1fr; } }
 </style>

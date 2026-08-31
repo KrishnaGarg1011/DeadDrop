@@ -114,6 +114,20 @@ export const mineDetail = wrap(async (req, res) => {
   res.json({ pkg: rows[0], recipients });
 });
 
+export const acknowledge = wrap(async (req, res) => {
+  const { recipientEmail } = req.body || {};
+  const { ip, userAgent } = reqMeta(req);
+  const result = await pkgService.acknowledgePackage(req.params.token, { recipientEmail, ip, userAgent });
+  res.json(result);
+});
+
+export const eventLog = wrap(async (req, res) => {
+  const { rows } = await query('SELECT id FROM packages WHERE token = $1 AND creator_id = $2', [req.params.token, req.auth.sub]);
+  if (!rows[0]) throw notFound('Package not found');
+  const events = await pkgService.getPackageEventLog(rows[0].id);
+  res.json({ events });
+});
+
 export const download = wrap(async (req, res) => {
   const { ip, userAgent } = reqMeta(req);
   const { pkg, buffer, shouldBurnAfterDownload, mime, name } = await pkgService.getFileStream(
