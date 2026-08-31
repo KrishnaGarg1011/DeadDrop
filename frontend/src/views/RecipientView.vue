@@ -1,0 +1,139 @@
+<script setup>
+import { ref, onMounted } from 'vue';
+import { useRoute } from 'vue-router';
+import { api } from '../api/client.js';
+
+const route = useRoute();
+const token = route.params.token;
+
+const phase = ref('loading');
+const errorMessage = ref('');
+const password = ref('');
+const busy = ref(false);
+const opened = ref(null);
+const downloadToken = ref(null);
+const downloading = ref(false);
+const meta = ref(null);
+
+async function load() {
+  phase.value = 'loading';
+  try {
+    const data = await api.get(`/api/packages/${token}/metadata`);
+    meta.value = data.pkg;
+    phase.value = 'password';
+  } catch (err) {
+    errorMessage.value = err.message;
+    phase.value = 'error';
+  }
+}
+
+async function open() {
+  busy.value = true;
+  try {
+    const data = await api.post(`/api/packages/${token}/open`, { password: password.value || undefined });
+    opened.value = data;
+    if (data.downloadToken) downloadToken.value = data.downloadToken;
+    phase.value = 'ready';
+  } catch (err) {
+    errorMessage.value = err.message;
+    phase.value = 'error';
+  } finally {
+    busy.value = false;
+  }
+}
+
+async function download() {
+  if (!downloadToken.value) return;
+  downloading.value = true;
+  try {
+    const res = await fetch(`/api/packages/${token}/download?token=${downloadToken.value}`);
+    if (!res.ok) throw new Error('Download failed.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = opened.value.file?.name || 'download';
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    errorMessage.value = err.message;
+  } finally {
+    downloading.value = false;
+  }
+}
+
+onMounted(load);
+</script>
+
+<template>
+  <div class="recipient">
+    <div class="brand-mini">
+      <span class="logo-dot">◈</span> DeadDrop
+    </div>
+
+    <div v-if="phase === 'loading'" class="card center">
+      <div class="spinner"></div>
+      <p class="muted">Opening package…</p>
+    </div>
+
+    <div v-else-if="phase === 'error'" class="card center dead">
+      <div class="big-icon">🚫</div>
+      <h2>This drop is unavailable</h2>
+      <p class="muted">{{ errorMessage }}</p>
+      <RouterLink to="/">Create your own drop →</RouterLink>
+    </div>
+
+    <div v-else-if="phase === 'password'" class="card center gate">
+      <div class="big-icon">🔒</div>
+      <h2>Locked drop</h2>
+      <p class="muted">
+        This package
+        <template v-if="meta && meta.maxViews">allows {{ meta.maxViews }} view{{ meta.maxViews > 1 ? 's' : '' }}</template>
+        <template v-if="meta && meta.burnAfterReading"> and <b>burns after reading</b></template>.
+      </p>
+      <form @submit.prevent="open">
+        <input v-model="password" type="password" placeholder="Enter password" autofocus />
+        <button class="primary" style="width: 100%; margin-top: 12px" :disabled="busy">
+          {{ busy ? 'Unlocking…' : 'Unlock' }}
+        </button>
+      </form>
+    </div>
+
+    <div v-else-if="phase === 'ready'" class="card center ready">
+      <template v-if="opened.type === 'text'">
+        <div class="big-icon">✉️</div>
+        <h2>Secret message revealed</h2>
+        <pre class="message mono">{{ opened.secretText }}</pre>
+        <p v-if="opened.burnAfterReading" class="warn">🔥 This message has been burned and can never be viewed again.</p>
+      </template>
+      <template v-else>
+        <div class="big-icon">📎</div>
+        <h2>{{ opened.file.name }}</h2>
+        <p class="muted">{{ (opened.file.size / 1024).toFixed(1) }} KB · {{ opened.file.mime }}</p>
+        <button class="primary" :disabled="downloading" @click="download">
+          {{ downloading ? 'Downloading…' : 'Download file' }}
+        </button>
+        <p v-if="opened.burnAfterReading" class="warn">🔥 This file will be deleted after download.</p>
+      </template>
+      <div class="spacer"></div>
+    </div>
+  </div>
+</template>
+
+<style scoped>
+.recipient { max-width: 560px; margin: 5vh auto 0; display: flex; flex-direction: column; align-items: center; gap: 20px; }
+.brand-mini { font-size: 1.05rem; font-weight: 700; }
+.logo-dot { color: var(--accent); font-size: 1.3rem; }
+.card { width: 100%; }
+.big-icon { font-size: 3rem; }
+.dead h2, .gate h2, .ready h2 { margin: 12px 0 6px; }
+.gate form { max-width: 320px; margin: 12px auto 0; }
+.message {
+  text-align: left; background: #0c110f; border: 1px solid var(--border);
+  border-radius: 12px; padding: 20px; white-space: pre-wrap; word-break: break-word;
+  font-size: 1.05rem; line-height: 1.5; margin: 16px auto 8px; max-width: 100%;
+}
+.warn { color: var(--amber); font-size: 0.85rem; margin-top: 12px; }
+.spinner { width: 34px; height: 34px; margin: 0 auto 12px; border: 3px solid var(--border); border-top-color: var(--accent-strong); border-radius: 50%; animation: spin 0.8s linear infinite; }
+@keyframes spin { to { transform: rotate(360deg); } }
+</style>
