@@ -1,7 +1,7 @@
 <script setup>
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
-import { api } from '../api/client.js';
+import { api, API_BASE } from '../api/client.js';
 
 const route = useRoute();
 const token = route.params.token;
@@ -46,7 +46,7 @@ async function download() {
   if (!downloadToken.value) return;
   downloading.value = true;
   try {
-    const res = await fetch(`/api/packages/${token}/download?token=${downloadToken.value}`);
+    const res = await fetch(`${API_BASE}/api/packages/${token}/download?token=${downloadToken.value}`);
     if (!res.ok) throw new Error('Download failed.');
     const blob = await res.blob();
     const url = URL.createObjectURL(blob);

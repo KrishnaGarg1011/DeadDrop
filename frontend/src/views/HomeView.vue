@@ -251,9 +251,9 @@ onUnmounted(() => clearTimeout(toastTimer));
             <input
               type="password"
               v-model="password"
-              :disabled="!usePassword"
-              :placeholder="usePassword ? 'Set a password' : 'Lock with a password'"
-              @focus="usePassword = true"
+              placeholder="Lock with a password"
+              :class="{ active: usePassword }"
+              @input="usePassword = password.length > 0"
             />
             <button v-if="usePassword" class="ghost x" @click="usePassword = false; password = ''">✕</button>
           </div>

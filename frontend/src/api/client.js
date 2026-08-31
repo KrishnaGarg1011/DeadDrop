@@ -7,7 +7,7 @@ const roleKey = 'deaddrop_role';
 // In dev, Vite proxies /api → the local Express server (no CORS).
 // In production, point this at the hosted backend, e.g.
 //   VITE_API_BASE=https://your-api.up.railway.app
-const API_BASE = import.meta.env.VITE_API_BASE || '';
+export const API_BASE = import.meta.env.VITE_API_BASE || '';
 
 
 // Storage access can throw (sandboxed iframe, private mode, blocked cookies),
