@@ -289,16 +289,34 @@ onUnmounted(() => clearTimeout(toastTimer));
 
         <!-- password -->
         <div class="field">
-          <label>{{ e2ee ? 'Encryption passphrase' : 'Password (optional)' }}</label>
-          <div class="pw">
+          <div class="pw-toggle">
+            <span class="lock">{{ e2ee ? '🔐' : '🔒' }}</span>
+            <label style="margin:0; text-transform:none; letter-spacing:0">
+              <b style="color: var(--text)">{{ e2ee ? 'Encryption passphrase' : 'Require a password' }}</b>
+              <span v-if="!e2ee" class="muted" style="display:block; font-weight:400; font-size:0.82rem">Optional — leave off for a plain drop.</span>
+              <span v-else class="muted" style="display:block; font-weight:400; font-size:0.82rem">Required — only the holder can decrypt.</span>
+            </label>
+            <input
+              v-if="e2ee"
+              type="checkbox"
+              checked
+              disabled
+              style="width:auto; margin-left:auto"
+            />
+            <input
+              v-else
+              type="checkbox"
+              v-model="usePassword"
+              style="width:auto; margin-left:auto"
+            />
+          </div>
+          <div v-if="usePassword || e2ee" class="pw" style="margin-top: 10px">
             <span class="lock">{{ e2ee ? '🔐' : '🔒' }}</span>
             <input
               type="password"
               v-model="password"
-              :placeholder="e2ee ? 'Set a passphrase (required for E2E)' : 'Lock with a password'"
-              @input="usePassword = !!password"
+              :placeholder="e2ee ? 'Set a passphrase (min 4 chars)' : 'Set a password (min 4 chars)'"
             />
-            <button v-if="usePassword && !e2ee" class="ghost x" @click="usePassword = false; password = ''">✕</button>
           </div>
         </div>
 
@@ -411,6 +429,8 @@ textarea { resize: vertical; }
 .pw .lock { position: absolute; left: 12px; font-size: 0.9rem; opacity: 0.7; }
 .pw input { padding-left: 36px; }
 .pw .x { position: absolute; right: 8px; padding: 4px 8px; }
+.pw-toggle { display: flex; align-items: center; gap: 10px; }
+.pw-toggle .lock { font-size: 1rem; }
 
 .make { width: 100%; margin-top: 20px; padding: 13px; font-size: 1rem; border-radius: 12px; }
 
