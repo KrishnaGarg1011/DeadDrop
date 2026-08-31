@@ -77,4 +77,9 @@ h1 { margin: 0 0 6px; font-size: 1.6rem; }
   padding: 14px 10px; border-radius: 14px;
 }
 .retrieve-btn { width: 100%; margin-top: 18px; padding: 13px; font-size: 1rem; border-radius: 12px; }
+@media (max-width: 480px) {
+  .retriever { padding: 0 12px; min-height: 55vh; }
+  .retrieve-card { width: 100%; max-width: 100%; padding: 30px 20px; }
+  .code-input { width: 100%; max-width: 220px; font-size: 1.7rem; }
+}
 </style>

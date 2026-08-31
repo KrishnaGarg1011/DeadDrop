@@ -94,12 +94,12 @@ onMounted(load);
         <tbody>
           <tr v-if="list.length === 0"><td colspan="6" class="center muted" style="padding: 30px">No audit entries.</td></tr>
           <tr v-for="l in list" :key="l.id" @click="selected = l" style="cursor: pointer">
-            <td class="mono">{{ l.action }}</td>
-            <td>{{ l.actor_type }}<span v-if="l.actor_id"> #{{ l.actor_id }}</span></td>
-            <td class="muted">{{ l.entity_type || '—' }}<span v-if="l.entity_id"> #{{ l.entity_id }}</span></td>
-            <td class="muted">{{ l.ip_address || '—' }}</td>
-            <td class="muted">{{ new Date(l.created_at).toLocaleString() }}</td>
-            <td><span class="muted">›</span></td>
+            <td data-label="Action" class="mono">{{ l.action }}</td>
+            <td data-label="Actor">{{ l.actor_type }}<span v-if="l.actor_id"> #{{ l.actor_id }}</span></td>
+            <td data-label="Entity" class="muted">{{ l.entity_type || '—' }}<span v-if="l.entity_id"> #{{ l.entity_id }}</span></td>
+            <td data-label="IP" class="muted">{{ l.ip_address || '—' }}</td>
+            <td data-label="Time" class="muted">{{ new Date(l.created_at).toLocaleString() }}</td>
+            <td data-label="">›</td>
           </tr>
         </tbody>
       </table>

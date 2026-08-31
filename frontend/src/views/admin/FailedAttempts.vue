@@ -44,11 +44,11 @@ onMounted(load);
         <tbody>
           <tr v-if="list.length === 0"><td colspan="5" class="center muted" style="padding: 30px">No failed attempts.</td></tr>
           <tr v-for="a in list" :key="a.id">
-            <td><span class="badge">{{ a.type }}</span></td>
-            <td class="mono">{{ a.type === 'access' ? a.token?.slice(0, 14) : a.email }}</td>
-            <td>{{ a.detail }}</td>
-            <td class="muted">{{ a.ip_address }}</td>
-            <td class="muted">{{ new Date(a.created_at).toLocaleString() }}</td>
+            <td data-label="Kind"><span class="badge">{{ a.type }}</span></td>
+            <td data-label="Subject" class="mono">{{ a.type === 'access' ? a.token?.slice(0, 14) : a.email }}</td>
+            <td data-label="Reason">{{ a.detail }}</td>
+            <td data-label="IP" class="muted">{{ a.ip_address }}</td>
+            <td data-label="Time" class="muted">{{ new Date(a.created_at).toLocaleString() }}</td>
           </tr>
         </tbody>
       </table>

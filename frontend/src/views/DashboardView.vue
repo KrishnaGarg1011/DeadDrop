@@ -142,23 +142,23 @@ onMounted(load);
           <tr v-if="list.length === 0"><td colspan="8" class="center muted" style="padding: 30px">Nothing yet. <RouterLink to="/">Create a drop →</RouterLink></td></tr>
           <template v-for="p in list" :key="p.id">
             <tr>
-              <td class="mono">{{ p.token.slice(0, 10) }}…</td>
-              <td><span class="badge">{{ p.type }}</span></td>
-              <td>{{ p.view_count }}{{ p.max_views ? ' / ' + p.max_views : '' }}</td>
-              <td class="muted">{{ p.expires_at ? timeLeft(p) : 'never' }}</td>
-              <td><span class="pill" :class="p.status">{{ p.status }}</span></td>
-              <td>
+              <td data-label="Token" class="mono">{{ p.token.slice(0, 10) }}…</td>
+              <td data-label="Type"><span class="badge">{{ p.type }}</span></td>
+              <td data-label="Views">{{ p.view_count }}{{ p.max_views ? ' / ' + p.max_views : '' }}</td>
+              <td data-label="Expires" class="muted">{{ p.expires_at ? timeLeft(p) : 'never' }}</td>
+              <td data-label="Status"><span class="pill" :class="p.status">{{ p.status }}</span></td>
+              <td data-label="Delivered">
                 <span class="pill" :class="deliveryStatus(p).cls">{{ deliveryStatus(p).label }}</span>
               </td>
-              <td class="muted">{{ new Date(p.created_at).toLocaleDateString() }}</td>
-              <td style="white-space: nowrap">
+              <td data-label="Created" class="muted">{{ new Date(p.created_at).toLocaleDateString() }}</td>
+              <td data-label="Actions" style="white-space: nowrap">
                 <button class="ghost" @click="copyLink(p)">Copy</button>
                 <button class="ghost" @click="toggleExpand(p)">{{ expanded === p.token ? 'Hide' : 'Details' }}</button>
                 <button v-if="p.status === 'active'" class="danger" @click="revoke(p)">Revoke</button>
               </td>
             </tr>
             <tr v-if="expanded === p.token" class="expand">
-              <td colspan="8">
+              <td colspan="8" class="expand">
                 <div class="detail-grid">
                   <div class="dcard">
                     <b>👥 Recipients</b>

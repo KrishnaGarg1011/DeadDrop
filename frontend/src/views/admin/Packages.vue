@@ -89,13 +89,13 @@ onMounted(load);
             <td colspan="7" class="center muted" style="padding: 30px">No packages found.</td>
           </tr>
           <tr v-for="p in list" :key="p.id">
-            <td class="mono">{{ p.token.slice(0, 12) }}…</td>
-            <td><span class="badge">{{ p.type }}</span></td>
-            <td>{{ p.view_count }}{{ p.max_views ? ' / ' + p.max_views : '' }}</td>
-            <td class="muted">{{ p.expires_at ? new Date(p.expires_at).toLocaleString() : '—' }}</td>
-            <td><span class="pill" :class="p.status">{{ p.status }}</span></td>
-            <td class="muted">{{ new Date(p.created_at).toLocaleString() }}</td>
-            <td>
+            <td data-label="Token" class="mono">{{ p.token.slice(0, 12) }}…</td>
+            <td data-label="Type"><span class="badge">{{ p.type }}</span></td>
+            <td data-label="Views">{{ p.view_count }}{{ p.max_views ? ' / ' + p.max_views : '' }}</td>
+            <td data-label="Expires" class="muted">{{ p.expires_at ? new Date(p.expires_at).toLocaleString() : '—' }}</td>
+            <td data-label="Status"><span class="pill" :class="p.status">{{ p.status }}</span></td>
+            <td data-label="Created" class="muted">{{ new Date(p.created_at).toLocaleString() }}</td>
+            <td data-label="Actions">
               <button v-if="p.status === 'active'" class="danger" @click="revoke(p)">Revoke</button>
             </td>
           </tr>

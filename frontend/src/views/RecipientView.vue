@@ -240,6 +240,13 @@ onMounted(load);
 
 .ack-row { margin-top: 14px; display: flex; flex-direction: column; align-items: center; gap: 4px; }
 .ack-done { color: var(--accent); font-weight: 600; font-size: 0.9rem; margin-top: 14px; }
-.share-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px; }
+.share-row { display: flex; align-items: center; justify-content: center; gap: 10px; margin-top: 16px; flex-wrap: wrap; }
 .share { padding: 6px 12px; font-weight: 700; }
+@media (max-width: 560px) {
+  .recipient { max-width: 100%; padding: 0 16px; gap: 16px; }
+  .message { font-size: 1rem; padding: 16px; }
+  .burn-text { font-size: 1.2rem; letter-spacing: 0.2em; }
+  .share-row { gap: 8px; }
+  .share { padding: 7px 14px; }
+}
 </style>

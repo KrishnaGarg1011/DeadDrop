@@ -67,5 +67,9 @@ async function submit() {
 
 <style scoped>
 .auth { max-width: 420px; margin: 6vh auto 0; }
+.auth :deep(.card) { padding: 26px; }
 h1 { margin-top: 0; }
+@media (max-width: 480px) {
+  .auth { padding: 0 14px; }
+}
 </style>

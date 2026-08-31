@@ -1,5 +1,5 @@
 <script setup>
-import { onMounted, watch } from 'vue';
+import { ref, onMounted, watch } from 'vue';
 import { useRoute, useRouter } from 'vue-router';
 import { useAuthStore } from './stores/auth.js';
 import { useNotificationsStore } from './stores/notifications.js';
@@ -10,8 +10,11 @@ const route = useRoute();
 const router = useRouter();
 const notif = useNotificationsStore();
 
+const menuOpen = ref(false);
+
 function showTopbar() { return route.name !== 'receive'; }
-function onLogout() { auth.logout(); router.push('/'); }
+function onLogout() { auth.logout(); router.push('/'); menuOpen.value = false; }
+function closeMenu() { menuOpen.value = false; }
 
 const eventLabel = (a) =>
   a === 'opened' ? 'Drop opened'
@@ -25,6 +28,9 @@ const eventLabel = (a) =>
 // identity so events keep flowing.
 watch(() => auth.isAuthenticated, () => { notif.disconnect(); notif.connect(); });
 onMounted(() => notif.connect());
+
+// Close the mobile menu whenever the route changes.
+watch(() => route.fullPath, () => { menuOpen.value = false; });
 </script>
 
 <template>
@@ -41,10 +47,17 @@ onMounted(() => notif.connect());
       </RouterLink>
 
       <nav class="nav">
-        <RouterLink to="/retrieve" class="navlink">Retrieve</RouterLink>
-        <RouterLink v-if="!auth.isAdmin" to="/dashboard" class="navlink">My drops</RouterLink>
-        <RouterLink v-if="auth.isAdmin" to="/admin" class="adminbtn">Admin</RouterLink>
-        <RouterLink v-if="!auth.isAdmin" to="/login?admin=1" class="adminbtn">Admin</RouterLink>
+        <!-- inline links: desktop only -->
+        <div class="nav-links">
+          <RouterLink to="/retrieve" class="navlink">Retrieve</RouterLink>
+          <RouterLink v-if="!auth.isAdmin" to="/dashboard" class="navlink">My drops</RouterLink>
+          <RouterLink v-if="auth.isAdmin" to="/admin" class="adminbtn">Admin</RouterLink>
+          <RouterLink v-if="!auth.isAdmin" to="/login?admin=1" class="adminbtn">Admin</RouterLink>
+          <template v-if="auth.isAuthenticated">
+            <span class="muted who">{{ auth.isAdmin ? auth.identity?.username : auth.identity?.email }}</span>
+            <button class="ghost" @click="onLogout">Log out</button>
+          </template>
+        </div>
 
         <button class="ghost theme-btn" @click="toggleTheme" :title="theme === 'light' ? 'Dark mode' : 'Light mode'">
           {{ theme === 'light' ? '🌙' : '☀️' }}
@@ -72,12 +85,25 @@ onMounted(() => notif.connect());
           </transition>
         </div>
 
-        <template v-if="auth.isAuthenticated">
-          <span class="muted who">{{ auth.isAdmin ? auth.identity?.username : auth.identity?.email }}</span>
-          <button class="ghost" @click="onLogout">Log out</button>
-        </template>
+        <!-- hamburger: mobile only -->
+        <button class="ghost burger" @click="menuOpen = !menuOpen" :title="menuOpen ? 'Close menu' : 'Menu'">☰</button>
       </nav>
     </header>
+
+    <!-- mobile dropdown menu -->
+    <transition name="drop">
+      <div v-if="showTopbar() && menuOpen" class="mobile-menu">
+        <RouterLink to="/retrieve" class="mm-link" @click="closeMenu">🔑 Retrieve a drop</RouterLink>
+        <RouterLink v-if="!auth.isAdmin" to="/dashboard" class="mm-link" @click="closeMenu">📦 My drops</RouterLink>
+        <RouterLink v-if="auth.isAdmin" to="/admin" class="mm-link" @click="closeMenu">🛠 Admin panel</RouterLink>
+        <RouterLink v-if="!auth.isAdmin" to="/login?admin=1" class="mm-link" @click="closeMenu">🛠 Admin login</RouterLink>
+        <template v-if="auth.isAuthenticated">
+          <div class="mm-sep"></div>
+          <div class="mm-who muted">Signed in as {{ auth.isAdmin ? auth.identity?.username : auth.identity?.email }}</div>
+          <button class="ghost mm-logout" @click="onLogout">Log out</button>
+        </template>
+      </div>
+    </transition>
 
     <main class="main">
       <RouterView />
@@ -87,16 +113,18 @@ onMounted(() => notif.connect());
 
 <style scoped>
 .app { min-height: 100%; display: flex; flex-direction: column; }
-.topbar { display: flex; align-items: center; justify-content: space-between; padding: 16px 34px; }
+.topbar { position: relative; display: flex; align-items: center; justify-content: space-between; padding: 16px 34px; gap: 12px; }
 .brand { display: flex; align-items: center; gap: 10px; font-weight: 700; font-size: 1.2rem; color: var(--text); letter-spacing: -0.01em; }
 .brand:hover { text-decoration: none; }
 .logo { display: inline-flex; align-items: center; justify-content: center; width: 30px; height: 30px; border-radius: 8px; background: var(--accent-strong); }
-.nav { display: flex; align-items: center; gap: 12px; font-size: 0.9rem; }
+.nav { display: flex; align-items: center; gap: 10px; font-size: 0.9rem; }
+.nav-links { display: flex; align-items: center; gap: 12px; }
 .who { font-size: 0.85rem; }
 .navlink { color: var(--muted); }
 .adminbtn { border: 1px solid var(--border-2); background: var(--bg-2); color: var(--text); padding: 8px 18px; border-radius: 10px; font-weight: 600; }
 .adminbtn:hover { border-color: var(--accent-strong); text-decoration: none; }
 .theme-btn { padding: 8px 10px; font-size: 1rem; }
+.burger { font-size: 1.3rem; padding: 6px 10px; display: none; }
 
 .bell-wrap { position: relative; }
 .bell { padding: 8px 10px; position: relative; font-size: 1.05rem; }
@@ -110,7 +138,34 @@ onMounted(() => notif.connect());
 .np-text { font-size: 0.88rem; }
 .np-meta { font-size: 0.75rem; }
 
+/* mobile dropdown */
+.mobile-menu {
+  display: none; position: absolute; top: 100%; left: 0; right: 0;
+  background: var(--bg-2); border-bottom: 1px solid var(--border); box-shadow: var(--shadow);
+  padding: 10px 24px 16px; z-index: 70;
+}
+.mm-link { display: block; padding: 12px 4px; color: var(--text); font-weight: 600; border-bottom: 1px solid var(--border); }
+.mm-link:hover { text-decoration: none; color: var(--accent); }
+.mm-sep { height: 8px; }
+.mm-who { font-size: 0.85rem; padding: 6px 4px; }
+.mm-logout { width: 100%; margin-top: 6px; }
+
 .drop-enter-active, .drop-leave-active { transition: opacity 0.15s, transform 0.15s; }
 .drop-enter-from, .drop-leave-to { opacity: 0; transform: translateY(-6px); }
 .main { flex: 1; width: 100%; max-width: 1150px; margin: 0 auto; padding: 10px 24px 60px; }
+
+/* Responsive: below 840px collapse the inline links into the hamburger menu. */
+@media (max-width: 840px) {
+  .topbar { padding: 14px 16px; }
+  .nav-links { display: none; }
+  .burger, .mobile-menu { display: block; }
+  .main { padding: 8px 16px 60px; }
+}
+@media (min-width: 841px) {
+  .mobile-menu { display: none !important; }
+}
+/* Notifications panel fits small screens */
+@media (max-width: 480px) {
+  .notif-panel { position: fixed; left: 12px; right: 12px; top: 64px; width: auto; }
+}
 </style>

@@ -40,9 +40,9 @@ onMounted(load);
         <tbody>
           <tr v-if="list.length === 0"><td colspan="3" class="center muted" style="padding: 30px">No users found.</td></tr>
           <tr v-for="u in list" :key="u.id">
-            <td>{{ u.email }}</td>
-            <td>{{ u.package_count }}</td>
-            <td class="muted">{{ new Date(u.created_at).toLocaleString() }}</td>
+            <td data-label="Email">{{ u.email }}</td>
+            <td data-label="Packages">{{ u.package_count }}</td>
+            <td data-label="Joined" class="muted">{{ new Date(u.created_at).toLocaleString() }}</td>
           </tr>
         </tbody>
       </table>

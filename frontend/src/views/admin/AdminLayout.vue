@@ -50,9 +50,12 @@ function logout() {
 .side-bottom { display: flex; flex-direction: column; gap: 8px; border-top: 1px solid var(--border); padding-top: 14px; }
 .content { min-width: 0; }
 @media (max-width: 760px) {
-  .admin { grid-template-columns: 1fr; }
-  .side { position: static; height: auto; flex-direction: row; align-items: center; }
-  .side nav { flex-direction: row; flex-wrap: wrap; }
-  .side-bottom { border-top: none; padding-top: 0; }
+  .admin { grid-template-columns: 1fr; gap: 14px; }
+  .side { position: static; height: auto; flex-direction: row; align-items: center; padding: 12px 14px; }
+  .side-brand { white-space: nowrap; }
+  .side nav { flex-direction: row; flex-wrap: wrap; gap: 4px; }
+  .side nav a { padding: 6px 10px; font-size: 0.8rem; }
+  .side-bottom { border-top: none; padding-top: 0; flex-direction: row; align-items: center; gap: 10px; }
+  .content { padding-bottom: 24px; }
 }
 </style>

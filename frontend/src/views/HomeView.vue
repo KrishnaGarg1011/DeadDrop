@@ -483,10 +483,28 @@ textarea { resize: vertical; }
 .actions { margin-top: 14px; }
 
 @media (max-width: 900px) {
-  .home { grid-template-columns: 1fr; gap: 30px; }
-  .hero { position: static; }
+  .home { grid-template-columns: 1fr; gap: 24px; padding-top: 8px; }
+  .hero { position: static; text-align: center; }
+  .lede { max-width: 520px; margin: 0 auto 16px; }
   h1 { font-size: 2.1rem; }
-  .features { grid-template-columns: 1fr; }
+  .features { grid-template-columns: 1fr; max-width: 520px; margin: 0 auto; }
+}
+@media (max-width: 560px) {
+  .home { gap: 18px; }
+  h1 { font-size: 1.8rem; }
+  .lede { font-size: 0.98rem; }
+  .compose { padding: 20px 16px 24px; }
+  .compose-head { flex-direction: column; align-items: stretch; }
+  .compose-head .seg { width: 100%; }
+  .seg { width: 100%; }
+  .seg button { flex: 1; }
+  .retrieve-pill { width: 100%; justify-content: center; }
+  .row.actions { flex-direction: column; }
+  .row.actions > * { width: 100%; }
+  .qr-row { flex-direction: column; align-items: stretch; }
+  .qr { width: 100%; height: auto; }
+  .link-box { flex-direction: column; }
+  .cb-digits { font-size: 1.6rem; letter-spacing: 0.35em; }
 }
 .fade-enter-active, .fade-leave-active { transition: opacity 0.2s; }
 .fade-enter-from, .fade-leave-to { opacity: 0; }
