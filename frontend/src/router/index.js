@@ -6,6 +6,7 @@ const routes = [
   { path: '/v/:token', name: 'receive', component: () => import('../views/RecipientView.vue') },
   { path: '/login', name: 'login', component: () => import('../views/LoginView.vue') },
   { path: '/register', name: 'register', component: () => import('../views/RegisterView.vue') },
+  { path: '/dashboard', name: 'dashboard', component: () => import('../views/DashboardView.vue'), meta: { requiresUser: true } },
 
   {
     path: '/admin',
@@ -34,6 +35,13 @@ router.beforeEach((to) => {
     const role = getRole();
     if (!token || role !== 'admin') {
       return { name: 'login', query: { redirect: to.fullPath, admin: '1' } };
+    }
+  }
+  if (to.meta.requiresUser) {
+    const token = getToken();
+    const role = getRole();
+    if (!token || role !== 'user') {
+      return { name: 'login', query: { redirect: to.fullPath } };
     }
   }
   return true;

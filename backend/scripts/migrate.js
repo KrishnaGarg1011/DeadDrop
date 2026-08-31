@@ -32,18 +32,28 @@ async function tableExists(name) {
   return !!rows[0].t;
 }
 
+const migrationsDir = path.resolve(__dirname, '../../migrations');
+const migrationFiles = fs.existsSync(migrationsDir)
+  ? fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()
+  : [];
+
 async function main() {
   await client.connect();
   console.log(`[migrate] connected (${env.databaseUrl.split('@')[1] || 'db'})`);
 
   if (await tableExists('packages')) {
-    console.log('[migrate] schema already present — skipping.');
+    console.log('[migrate] schema already present — applying feature migrations.');
   } else {
     const script = fs.readFileSync(schemaFile, 'utf8');
-    // execute as a single multi-statement query (psql-style);
-    // pg supports this when there are no parameters.
     await client.query(script);
-    console.log('[migrate] schema created successfully.');
+    console.log('[migrate] base schema created successfully.');
+  }
+
+  // Apply every idempotent feature migration (safe to re-run).
+  for (const file of migrationFiles) {
+    const sql = fs.readFileSync(path.join(migrationsDir, file), 'utf8');
+    await client.query(sql);
+    console.log(`[migrate] applied ${file}`);
   }
 
   await client.end();

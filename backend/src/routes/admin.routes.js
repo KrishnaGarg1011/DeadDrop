@@ -14,5 +14,7 @@ router.post('/packages/:token/revoke', admin.revoke);
 router.get('/users', admin.users);
 router.get('/failed-attempts', admin.failedAttempts);
 router.get('/audit-logs', admin.auditLogs);
+router.get('/audit-logs/export/csv', admin.exportAuditCsv);
+router.get('/audit-logs/export/pdf', admin.exportAuditPdf);
 
 export default router;

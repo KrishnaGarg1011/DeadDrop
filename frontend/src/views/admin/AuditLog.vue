@@ -39,6 +39,25 @@ function resetFilters() {
   q.value = '';
   page.value = 1;
 }
+
+async function exportFile(kind) {
+  const token = localStorage.getItem('deaddrop_token');
+  try {
+    const res = await fetch(`/api/admin/audit-logs/export/${kind}`, {
+      headers: token ? { Authorization: `Bearer ${token}` } : {},
+    });
+    if (!res.ok) throw new Error('Export failed.');
+    const blob = await res.blob();
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `deaddrop-audit.${kind === 'csv' ? 'csv' : 'pdf'}`;
+    a.click();
+    URL.revokeObjectURL(url);
+  } catch (err) {
+    alert(err.message);
+  }
+}
 watch([action, actorType, entityType, q], () => { page.value = 1; load(); });
 onMounted(load);
 </script>
@@ -47,6 +66,11 @@ onMounted(load);
   <div>
     <h1>Audit Log</h1>
     <p class="muted">Every event, state change, timestamp and IP across the platform.</p>
+
+    <div class="export-row">
+      <button class="ghost" @click="exportFile('csv')">⬇ Export CSV</button>
+      <button class="ghost" @click="exportFile('pdf')">⬇ Export PDF</button>
+    </div>
 
     <div class="toolbar">
       <input v-model="q" placeholder="Search action or details…" class="grow" />
@@ -101,6 +125,7 @@ onMounted(load);
 </template>
 
 <style scoped>
+.export-row { display: flex; gap: 10px; margin-bottom: 16px; }
 .toolbar { display: flex; gap: 12px; margin-bottom: 18px; flex-wrap: wrap; }
 .toolbar input { max-width: 220px; }
 .toolbar .grow { max-width: 280px; }

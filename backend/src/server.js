@@ -1,7 +1,9 @@
+import http from 'node:http';
 import { app } from './app.js';
 import { env } from './config/env.js';
 import { query } from './config/db.js';
 import { expirePackages } from './services/package.service.js';
+import { attachRealtime } from './services/realtime.js';
 
 async function start() {
   try {
@@ -11,7 +13,10 @@ async function start() {
     // Verify the schema is present before accepting traffic.
     await expirePackages();
 
-    app.listen(env.port, '0.0.0.0', () => {
+    const server = http.createServer(app);
+    attachRealtime(server);
+
+    server.listen(env.port, '0.0.0.0', () => {
       console.log(`[server] DeadDrop API listening on http://0.0.0.0:${env.port}`);
     });
 

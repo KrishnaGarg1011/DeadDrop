@@ -6,6 +6,10 @@ import { query, withTransaction } from '../config/db.js';
 import { env } from '../config/env.js';
 import { notFound, forbidden, conflict, tooMany } from '../utils/http.js';
 import { audit } from './audit.js';
+import { newFileKey, encryptBuffer, decryptBuffer } from './crypto.service.js';
+import { notifyPackageEvent } from './realtime.js';
+
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 // ---------------------------------------------------------------------------
 // Helpers
@@ -75,6 +79,7 @@ function toPublicMeta(pkg) {
     viewCount: pkg.view_count,
     burnAfterReading: pkg.burn_after_reading,
     isPasswordProtected: pkg.is_password_protected,
+    e2ee: !!pkg.e2ee,
     status: pkg.status,
     createdAt: pkg.created_at,
   };
@@ -101,6 +106,13 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
     is_password_protected,
     password,
     max_failed_attempts,
+    // feature set
+    e2ee,
+    enc_payload,
+    enc_iv,
+    enc_salt,
+    file_crypto,
+    recipient_emails,
   } = input;
 
   // lifecycle: at least one of time-based expiry or a view limit may be set
@@ -123,11 +135,21 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
 
   const burn = toBool(burn_after_reading);
   const isProtected = toBool(is_password_protected);
+  const e2eeEnabled = toBool(e2ee);
+  const fileCryptoEnabled = toBool(file_crypto);
+
   let passwordHash = null;
-  if (isProtected) {
+  if (isProtected && !e2eeEnabled) {
     if (!password) throw conflict('password is required when password protection is enabled');
     if (password.length < 4) throw conflict('password must be at least 4 characters');
     passwordHash = await bcrypt.hash(password, 11);
+  }
+
+  // E2E text: content is encrypted client-side; the server stores only ciphertext.
+  if (type === 'text' && e2eeEnabled) {
+    if (!enc_payload || !enc_iv || !enc_salt) {
+      throw conflict('enc_payload, enc_iv and enc_salt are required for E2E encryption');
+    }
   }
 
   let attemptsLimit = env.maxFailedAttempts;
@@ -136,18 +158,38 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
     if (!Number.isInteger(attemptsLimit) || attemptsLimit < 1) throw conflict('max_failed_attempts must be a positive integer');
   }
 
+  // Encrypt the file at rest (AES-256-GCM) so the disk never holds plaintext.
+  let fileKeyB64 = null;
+  let fileIvB64 = null;
+  let fileTagB64 = null;
+  let cryptoFlag = false;
+  if (type === 'file' && file && fileCryptoEnabled) {
+    const absPath = path.resolve(env.uploadsDir, file.filename);
+    if (fs.existsSync(absPath)) {
+      const buf = fs.readFileSync(absPath);
+      const key = newFileKey();
+      const { enc, iv, tag } = encryptBuffer(buf, key);
+      fs.writeFileSync(absPath, enc);
+      fileKeyB64 = key.toString('base64');
+      fileIvB64 = iv.toString('base64');
+      fileTagB64 = tag.toString('base64');
+      cryptoFlag = true;
+    }
+  }
+
   const { rows } = await query(
     `INSERT INTO packages (
         creator_id, type, secret_text, file_name, file_path, file_mime, file_size,
         expires_at, max_views, burn_after_reading,
-        is_password_protected, password_hash, max_failed_attempts
+        is_password_protected, password_hash, max_failed_attempts,
+        e2ee, enc_payload, enc_iv, enc_salt, file_crypto, file_key, file_iv, file_tag
      )
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+     VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,$13,$14,$15,$16,$17,$18,$19,$20,$21)
      RETURNING *`,
     [
       creatorId,
       type,
-      type === 'text' ? secret_text : null,
+      type === 'text' ? (e2eeEnabled ? null : secret_text) : null,
       file ? file.originalname : null,
       file ? `uploads/${file.filename}` : null,
       file ? file.mimetype : null,
@@ -158,10 +200,31 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
       isProtected,
       passwordHash,
       attemptsLimit,
+      e2eeEnabled,
+      type === 'text' && e2eeEnabled ? enc_payload : null,
+      type === 'text' && e2eeEnabled ? enc_iv : null,
+      type === 'text' && e2eeEnabled ? enc_salt : null,
+      cryptoFlag,
+      fileKeyB64,
+      fileIvB64,
+      fileTagB64,
     ]
   );
 
   const pkg = rows[0];
+
+  // Shared / team drop: register invited recipients.
+  const recipients = Array.isArray(recipient_emails) ? recipient_emails : [];
+  if (recipients.length) {
+    for (const email of recipients) {
+      if (EMAIL_RE.test(email)) {
+        await query(
+          `INSERT INTO package_recipients (package_id, recipient_email) VALUES ($1, $2)`,
+          [pkg.id, email]
+        );
+      }
+    }
+  }
 
   await audit({
     actorType: creatorId ? 'user' : 'anonymous',
@@ -173,6 +236,9 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
       type,
       burn,
       isProtected,
+      e2ee: e2eeEnabled,
+      fileCrypto: cryptoFlag,
+      recipients: recipients.length,
       expiresAt: pkg.expires_at,
       maxViews: pkg.max_views,
     },
@@ -184,19 +250,56 @@ export async function createPackage(input, { creatorId, ip, userAgent }) {
 }
 
 // ---------------------------------------------------------------------------
+// "Your drops" for a logged-in sender
+// ---------------------------------------------------------------------------
+export async function listPackagesForCreator(creatorId, { page, limit }) {
+  const offset = (page - 1) * limit;
+  const { rows: countRows } = await query(
+    `SELECT count(*)::int AS total FROM packages WHERE creator_id = $1`,
+    [creatorId]
+  );
+  const { rows } = await query(
+    `SELECT id, token, type, file_name, file_size, expires_at, max_views, view_count,
+            burn_after_reading, is_password_protected, e2ee, status, revoked_at, created_at
+     FROM packages WHERE creator_id = $1
+     ORDER BY created_at DESC
+     LIMIT $2 OFFSET $3`,
+    [creatorId, limit, offset]
+  );
+  return { list: rows, total: countRows[0].total, page, limit };
+}
+
+export async function listRecipientsForPackage(packageId) {
+  const { rows } = await query(
+    `SELECT id, recipient_email, opened_at, created_at
+     FROM package_recipients WHERE package_id = $1 ORDER BY created_at ASC`,
+    [packageId]
+  );
+  return rows;
+}
+
+// ---------------------------------------------------------------------------
 // Metadata for the recipient view (no content revealed yet)
 // ---------------------------------------------------------------------------
 export async function getMetadata(token) {
   const { rows } = await query(`SELECT ${publicPackageColumns} FROM packages WHERE token = $1`, [token]);
   if (!rows[0]) throw notFound('Package not found');
   let pkg = await ensureNotExpired(rows[0]);
-  return toPublicMeta(pkg);
+  const meta = toPublicMeta(pkg);
+  // expose whether this is a shared/team drop (senders set recipients)
+  const { rows: rc } = await query(
+    `SELECT count(*)::int AS n FROM package_recipients WHERE package_id = $1`,
+    [pkg.id]
+  );
+  meta.shared = (rc[0]?.n || 0) > 0;
+  return meta;
 }
 
 // ---------------------------------------------------------------------------
 // Open (unlock) — the single entry point that validates all access rules.
 // ---------------------------------------------------------------------------
-export async function openPackage(token, { password, ip, userAgent }) {
+export async function openPackage(token, { password, ip, userAgent, recipientEmail }) {
+  void recipientEmail;
   const { rows } = await query(`SELECT * FROM packages WHERE token = $1`, [token]);
   if (!rows[0]) throw notFound('Package not found');
 
@@ -225,8 +328,8 @@ export async function openPackage(token, { password, ip, userAgent }) {
     throw conflict('This package has reached its view limit.');
   }
 
-  // ---- password check ----
-  if (pkg.is_password_protected) {
+  // ---- password check (server-side verifies only non-E2E packages) ----
+  if (pkg.is_password_protected && !pkg.e2ee) {
     const ok = password ? await bcrypt.compare(password, pkg.password_hash) : false;
     if (!ok) {
       const newCount = pkg.failed_attempts + 1;
@@ -270,7 +373,8 @@ export async function openPackage(token, { password, ip, userAgent }) {
     if (pkg.burn_after_reading) {
       newStatus = 'burned';
       if (pkg.type === 'text') {
-        secretsToNull = `, secret_text = NULL`;
+        // wipe plaintext AND any E2E ciphertext so nothing lingers
+        secretsToNull = `, secret_text = NULL, enc_payload = NULL, enc_iv = NULL, enc_salt = NULL`;
       }
     } else if (isLastView) {
       // reach max, mark as expired (view-limit exhausted)
@@ -293,18 +397,48 @@ export async function openPackage(token, { password, ip, userAgent }) {
 
   await logAccess({ packageId: pkg.id, token, success: true, reason: 'ok', ip, userAgent });
 
-  await audit({
-    action: result.updated.burn_after_reading
-      ? 'package.burned'
-      : result.updated.status === 'expired'
-        ? 'package.exhausted'
-        : 'package.opened',
-    entityType: 'package', entityId: pkg.id,
-    details: { views: result.updated.view_count },
-    ip, userAgent,
-  });
+  const action = result.updated.burn_after_reading
+    ? 'package.burned'
+    : result.updated.status === 'expired'
+      ? 'package.exhausted'
+      : 'package.opened';
+  await audit({ action, entityType: 'package', entityId: pkg.id, details: { views: result.updated.view_count }, ip, userAgent });
+
+  // Mark a shared-drop recipient as read.
+  if (recipientEmail) {
+    await query(
+      `UPDATE package_recipients SET opened_at = now()
+       WHERE package_id = $1 AND recipient_email = $2 AND opened_at IS NULL`,
+      [pkg.id, recipientEmail]
+    );
+  }
+
+  // Notify the sender in real time (only if the sender has an account).
+  if (pkg.creator_id != null) {
+    await notifyPackageEvent({
+      packageId: String(pkg.id),
+      creatorId: String(pkg.creator_id),
+      token: pkg.token,
+      action: result.updated.burn_after_reading ? 'burned'
+        : result.updated.status === 'expired' ? 'exhausted' : 'opened',
+      views: result.updated.view_count,
+      at: new Date().toISOString(),
+    });
+  }
 
   if (pkg.type === 'text') {
+    if (pkg.e2ee) {
+      // Client decrypts locally; server held only the ciphertext.
+      return {
+        type: 'text',
+        encrypted: true,
+        payload: pkg.enc_payload,
+        iv: pkg.enc_iv,
+        salt: pkg.enc_salt,
+        burnAfterReading: pkg.burn_after_reading,
+        viewCount: result.updated.view_count,
+      };
+    }
     return {
       type: 'text',
       secretText: result.secretText,
@@ -341,6 +475,21 @@ export async function getFileStream(downloadToken, { ip, userAgent }) {
     throw notFound('File is no longer available.');
   }
 
+  // Read the file; decrypt at-rest ciphertext into a plaintext buffer for download.
+  let buffer = fs.readFileSync(absPath);
+  if (pkg.file_crypto && pkg.file_key && pkg.file_iv && pkg.file_tag) {
+    try {
+      buffer = decryptBuffer(
+        buffer,
+        Buffer.from(pkg.file_key, 'base64'),
+        Buffer.from(pkg.file_iv, 'base64'),
+        Buffer.from(pkg.file_tag, 'base64')
+      );
+    } catch (err) {
+      throw forbidden('File could not be decrypted.');
+    }
+  }
+
   // After a burn-after-reading file has been downloaded, permanently delete it.
   const shouldBurnAfterDownload = pkg.burn_after_reading;
   await logAccess({ packageId: pkg.id, token: pkg.token, success: true, reason: 'file_downloaded', ip, userAgent });
@@ -348,7 +497,7 @@ export async function getFileStream(downloadToken, { ip, userAgent }) {
     await audit({ action: 'package.burned', entityType: 'package', entityId: pkg.id, details: { reason: 'file_downloaded' }, ip, userAgent });
   }
 
-  return { pkg, absPath, shouldBurnAfterDownload };
+  return { pkg, buffer, shouldBurnAfterDownload, mime: pkg.file_mime, name: pkg.file_name, size: buffer.length };
 }
 
 export async function deleteStoredFile(pkg) {

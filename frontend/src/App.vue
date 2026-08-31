@@ -28,8 +28,9 @@ function onLogout() {
       </RouterLink>
 
       <nav class="nav">
+        <RouterLink v-if="auth.isUser" to="/dashboard" class="navlink">My drops</RouterLink>
         <RouterLink v-if="auth.isAdmin" to="/admin" class="adminbtn">Admin</RouterLink>
-        <RouterLink v-else to="/login?admin=1" class="adminbtn">Admin</RouterLink>
+        <RouterLink v-if="!auth.isAdmin" to="/login?admin=1" class="adminbtn">Admin</RouterLink>
 
         <template v-if="auth.isAuthenticated">
           <span class="muted who">{{ auth.isAdmin ? auth.identity?.username : auth.identity?.email }}</span>
@@ -59,6 +60,7 @@ function onLogout() {
 }
 .nav { display: flex; align-items: center; gap: 14px; font-size: 0.9rem; }
 .who { font-size: 0.85rem; }
+.navlink { color: var(--muted); }
 .adminbtn {
   border: 1px solid var(--border-2); background: var(--bg-2);
   color: var(--text); padding: 8px 18px; border-radius: 10px; font-weight: 600;

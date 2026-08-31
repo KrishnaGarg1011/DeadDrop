@@ -4,6 +4,66 @@ import { badRequest, notFound } from '../utils/http.js';
 import { reqMeta } from '../services/audit.js';
 import { revokePackage } from '../services/package.service.js';
 
+// Simple CSV escape.
+function csvCell(v) {
+  if (v == null) return '';
+  const s = typeof v === 'object' ? JSON.stringify(v) : String(v);
+  return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
+}
+
+async function fetchAuditRows({ limit = 5000 } = {}) {
+  const { rows } = await query(
+    `SELECT id, created_at, actor_type, actor_id, action, entity_type, entity_id, details, ip_address, user_agent
+     FROM audit_logs ORDER BY created_at DESC LIMIT $1`,
+    [Math.min(Math.max(limit, 1), 10000)]
+  );
+  return rows;
+}
+
+export const exportAuditCsv = wrap(async (req, res) => {
+  const rows = await fetchAuditRows();
+  const header = ['id', 'created_at', 'actor_type', 'actor_id', 'action', 'entity_type', 'entity_id', 'details', 'ip_address', 'user_agent'];
+  const lines = [header.join(',')];
+  for (const r of rows) {
+    lines.push([
+      r.id, r.created_at, r.actor_type, r.actor_id, r.action,
+      r.entity_type, r.entity_id, JSON.stringify(r.details), r.ip_address, r.user_agent,
+    ].map(csvCell).join(','));
+  }
+  const buf = '\ufeff' + lines.join('\r\n');
+  res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+  res.setHeader('Content-Disposition', 'attachment; filename="deaddrop-audit.csv"');
+  res.send(buf);
+});
+
+export const exportAuditPdf = wrap(async (req, res) => {
+  const rows = await fetchAuditRows();
+  const PDFDocument = (await import('pdfkit')).default;
+  const doc = new PDFDocument({ size: 'A4', margin: 36 });
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', 'attachment; filename="deaddrop-audit.pdf"');
+  doc.pipe(res);
+
+  doc.fontSize(20).text('DeadDrop — Audit Log', { align: 'center' });
+  doc.moveDown();
+  doc.fontSize(9);
+
+  const col = [36, 120, 190, 250, 350, 430, 520];
+  const drawRow = (cells, isHeader = false) => {
+    if (isHeader) {
+      cells.forEach((c, i) => doc.font('Helvetica-Bold').text(c, col[i], undefined, { width: col[i + 1] ? col[i + 1] - col[i] - 4 : 120 }));
+    } else {
+      cells.forEach((c, i) => doc.font('Helvetica').text(String(c === undefined ? '' : c).slice(0, 22), col[i], undefined, { width: col[i + 1] ? col[i + 1] - col[i] - 4 : 120 }));
+    }
+    doc.moveDown(0.2);
+  };
+  drawRow(['ID', 'Time', 'Actor', 'Action', 'Entity', 'IP', 'UA'], true);
+  for (const r of rows) {
+    drawRow([r.id, new Date(r.created_at).toLocaleString(), r.actor_type, r.action, r.entity_type, r.ip_address || '', (r.user_agent || '').slice(0, 12)]);
+  }
+  doc.end();
+});
+
 // ---------------------------------------------------------------------------
 // Pagination + filtering helpers (shared across dashboard views)
 // ---------------------------------------------------------------------------

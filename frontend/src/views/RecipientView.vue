@@ -2,13 +2,15 @@
 import { ref, onMounted } from 'vue';
 import { useRoute } from 'vue-router';
 import { api, API_BASE } from '../api/client.js';
+import { decryptText } from '../utils/crypto.js';
 
 const route = useRoute();
 const token = route.params.token;
 
-const phase = ref('loading');
+const phase = ref('loading'); // loading | password | ready | error
 const errorMessage = ref('');
 const password = ref('');
+const sharedEmail = ref('');
 const busy = ref(false);
 const opened = ref(null);
 const downloadToken = ref(null);
@@ -20,7 +22,12 @@ async function load() {
   try {
     const data = await api.get(`/api/packages/${token}/metadata`);
     meta.value = data.pkg;
-    phase.value = 'password';
+    // Auto-open if no password / no E2E; otherwise prompt.
+    if (!meta.value.isPasswordProtected && !meta.value.e2ee) {
+      await open();
+    } else {
+      phase.value = 'password';
+    }
   } catch (err) {
     errorMessage.value = err.message;
     phase.value = 'error';
@@ -30,7 +37,20 @@ async function load() {
 async function open() {
   busy.value = true;
   try {
-    const data = await api.post(`/api/packages/${token}/open`, { password: password.value || undefined });
+    const data = await api.post(`/api/packages/${token}/open`, {
+      password: password.value || undefined,
+      recipientEmail: sharedEmail.value || undefined,
+    });
+    if (data.encrypted) {
+      // The server never saw the plaintext; decrypt locally with the passphrase.
+      try {
+        data.decrypted = await decryptText(password.value, data.payload, data.iv, data.salt);
+      } catch {
+        errorMessage.value = 'Incorrect passphrase.';
+        phase.value = 'error';
+        return;
+      }
+    }
     opened.value = data;
     if (data.downloadToken) downloadToken.value = data.downloadToken;
     phase.value = 'ready';
@@ -67,9 +87,7 @@ onMounted(load);
 
 <template>
   <div class="recipient">
-    <div class="brand-mini">
-      <span class="logo-dot">◈</span> DeadDrop
-    </div>
+    <div class="brand-mini"><span class="logo-dot">◈</span> DeadDrop</div>
 
     <div v-if="phase === 'loading'" class="card center">
       <div class="spinner"></div>
@@ -84,26 +102,32 @@ onMounted(load);
     </div>
 
     <div v-else-if="phase === 'password'" class="card center gate">
-      <div class="big-icon">🔒</div>
-      <h2>Locked drop</h2>
+      <div class="big-icon">{{ meta?.e2ee ? '🔐' : '🔒' }}</div>
+      <h2>{{ meta?.e2ee ? 'End-to-end encrypted drop' : 'Locked drop' }}</h2>
       <p class="muted">
-        This package
-        <template v-if="meta && meta.maxViews">allows {{ meta.maxViews }} view{{ meta.maxViews > 1 ? 's' : '' }}</template>
-        <template v-if="meta && meta.burnAfterReading"> and <b>burns after reading</b></template>.
+        <template v-if="meta?.e2ee">Enter your passphrase to decrypt. The server never saw this message.</template>
+        <template v-else>This package
+          <template v-if="meta && meta.maxViews">allows {{ meta.maxViews }} view{{ meta.maxViews > 1 ? 's' : '' }}</template>
+          <template v-if="meta && meta.burnAfterReading"> and <b>burns after reading</b></template>.
+        </template>
       </p>
-      <form @submit.prevent="open">
-        <input v-model="password" type="password" placeholder="Enter password" autofocus />
+      <div v-if="meta?.shared" class="field" style="margin: 12px auto 0; max-width: 320px; text-align: left">
+        <label>Your email (optional, read receipt)</label>
+        <input v-model="sharedEmail" type="email" placeholder="you@email.com" />
+      </div>
+      <form @submit.prevent="open" style="max-width: 320px; margin: 12px auto 0">
+        <input v-model="password" type="password" :placeholder="meta?.e2ee ? 'Enter passphrase' : 'Enter password'" autofocus />
         <button class="primary" style="width: 100%; margin-top: 12px" :disabled="busy">
-          {{ busy ? 'Unlocking…' : 'Unlock' }}
+          {{ busy ? 'Unlocking…' : (meta?.e2ee ? 'Decrypt' : 'Unlock') }}
         </button>
       </form>
     </div>
 
     <div v-else-if="phase === 'ready'" class="card center ready">
       <template v-if="opened.type === 'text'">
-        <div class="big-icon">✉️</div>
-        <h2>Secret message revealed</h2>
-        <pre class="message mono">{{ opened.secretText }}</pre>
+        <div class="big-icon">{{ opened.encrypted ? '🔐' : '✉️' }}</div>
+        <h2>{{ opened.encrypted ? 'Decrypted message' : 'Secret message revealed' }}</h2>
+        <pre class="message mono">{{ opened.decrypted || opened.secretText }}</pre>
         <p v-if="opened.burnAfterReading" class="warn">🔥 This message has been burned and can never be viewed again.</p>
       </template>
       <template v-else>
