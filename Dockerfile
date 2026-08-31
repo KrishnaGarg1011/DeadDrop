@@ -12,6 +12,7 @@ RUN npm ci --omit=dev || npm install --omit=dev
 # Application source
 COPY backend/src ./src
 COPY backend/scripts ./scripts
+COPY migrations ./migrations
 COPY schema.sql ./schema.sql
 
 # Uploaded files live here — mount a persistent volume here in production

@@ -32,8 +32,14 @@ async function tableExists(name) {
   return !!rows[0].t;
 }
 
-const migrationsDir = path.resolve(__dirname, '../../migrations');
-const migrationFiles = fs.existsSync(migrationsDir)
+// Locate the migrations folder across local dev and the Docker image.
+const migrationsCandidates = [
+  path.resolve(__dirname, '../../migrations'),  // repo root (local)
+  path.resolve(__dirname, '../migrations'),     // /app (Docker)
+  path.resolve(process.cwd(), 'migrations'),
+];
+const migrationsDir = migrationsCandidates.find((p) => fs.existsSync(p));
+const migrationFiles = migrationsDir
   ? fs.readdirSync(migrationsDir).filter((f) => f.endsWith('.sql')).sort()
   : [];
 
