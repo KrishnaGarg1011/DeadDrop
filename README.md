@@ -36,14 +36,14 @@ deaddrop/
 - **Admin dashboard** — stats, packages (search/filter/paginate/revoke), users,
   failed attempts, and a comprehensive audit log
 
-## Quick start
+## Quick start (local)
 
 ```bash
-# 1. Database
+# 1. Database — or just use the auto-migrate step below (no psql needed)
 createdb deaddrop
 psql deaddrop < schema.sql          # creates tables + seed admin
 
-# 2. Backend
+# 2. Backend — schema is auto-applied on start via `npm run db:migrate`
 cd backend
 cp .env.example .env                # set DATABASE_URL + secrets
 npm install && npm run dev          # http://localhost:5000
@@ -52,8 +52,17 @@ npm install && npm run dev          # http://localhost:5000
 cd frontend
 npm install && npm run dev          # http://localhost:5173
 ```
+> The backend runs `node scripts/migrate.js` (idempotent) before starting, so
+> the database schema is created automatically from `schema.sql` — nobody needs
+> `psql` or to type a password.
 
 Default admin: **admin / admin123**.
+
+## Deploying
+
+See **[DEPLOY.md](DEPLOY.md)** for a step-by-step Railway (backend + Postgres +
+persistent disk) and optional Vercel (frontend) walkthrough. Everything is
+env-var driven; no secrets are committed.
 
 ## Demo flow
 1. Open `/` → create a locked, burn-after-reading drop → copy the link.

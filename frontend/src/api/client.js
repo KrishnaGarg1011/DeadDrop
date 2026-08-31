@@ -4,6 +4,12 @@
 const tokenKey = 'deaddrop_token';
 const roleKey = 'deaddrop_role';
 
+// In dev, Vite proxies /api → the local Express server (no CORS).
+// In production, point this at the hosted backend, e.g.
+//   VITE_API_BASE=https://your-api.up.railway.app
+const API_BASE = import.meta.env.VITE_API_BASE || '';
+
+
 // Storage access can throw (sandboxed iframe, private mode, blocked cookies),
 // so guard every call — the app must never crash because storage is unavailable.
 const store = {
@@ -48,7 +54,7 @@ async function request(method, url, { body, headers = {}, isForm = false } = {})
     }
   }
 
-  const res = await fetch(url, options);
+  const res = await fetch(`${API_BASE}${url}`, options);
 
   const isJson = (res.headers.get('content-type') || '').includes('application/json');
   const data = isJson ? await res.json().catch(() => ({})) : {};
